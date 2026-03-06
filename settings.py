@@ -14,6 +14,15 @@ SCREEN_H = TOP_BAR_H + BOARD_PX
 FPS = 60
 TITLE = "RajakarDhor"
 
+# --- Game rules ---
+SIGHT_RANGE = 3
+
+NOISE_MOVE = 2
+NOISE_WAIT = 0
+NOISE_ESCAPE = 3
+
+MAX_TURNS = 60   # turns = single actions (60 turns = 30 rounds)
+
 # --- Colors (simple dark tactical theme) ---
 BG = (14, 14, 18)
 
@@ -43,3 +52,13 @@ WALL_EDGE = (60, 60, 85)
 EXIT_FILL = (28, 110, 70)
 EXIT_EDGE = (80, 220, 150)
 EXIT_GLOW = (80, 220, 150, 90)  # RGBA for glow
+
+# --- Player styling ---
+RAJAKAR_FILL = (240, 190, 70)
+RAJAKAR_EDGE = (255, 230, 140)
+
+GUARD_FILL = (90, 180, 255)
+GUARD_EDGE = (160, 220, 255)
+
+PLAYER_SHADOW = (0, 0, 0, 110)   # RGBA
+PLAYER_GLOW = (255, 255, 255, 50)  # RGBA (subtle)

@@ -7,13 +7,68 @@ from settings import (
     BG, TOP_BAR_BG, PANEL_BG, BOARD_BG,
     GRID_LINE, TILE_A, TILE_B,
     WALL_FILL, WALL_EDGE,
-    EXIT_FILL, EXIT_EDGE, EXIT_GLOW
+    EXIT_FILL, EXIT_EDGE, EXIT_GLOW,
+    RAJAKAR_FILL, RAJAKAR_EDGE,
+    GUARD_FILL, GUARD_EDGE,
+    PLAYER_SHADOW, PLAYER_GLOW,
+    SIGHT_RANGE, NOISE_MOVE, NOISE_WAIT, NOISE_ESCAPE, MAX_TURNS
 )
 from render.ui import draw_ui
 from core.grid import Grid, FLOOR, WALL, EXIT
+from core.spawn import spawn_match
+from core.rules import manhattan, in_straight_sight, heard_noise
 
 
-def draw_layout(screen, grid, font_exit):
+def try_move(grid, pos, dr, dc):
+    r, c = pos
+    nr, nc = r + dr, c + dc
+    if grid.is_walkable(nr, nc):
+        return (nr, nc), True
+    return pos, False
+
+
+def action_noise_radius(action_name: str) -> int:
+    if action_name == "MOVE":
+        return NOISE_MOVE
+    if action_name == "WAIT":
+        return NOISE_WAIT
+    if action_name == "ESCAPE":
+        return NOISE_ESCAPE
+    return 0
+
+
+def draw_player(screen, r, c, fill, edge, label, font_small):
+    # tile center
+    cx = c * TILE_SIZE + TILE_SIZE // 2
+    cy = TOP_BAR_H + r * TILE_SIZE + TILE_SIZE // 2
+
+    radius = int(TILE_SIZE * 0.30)
+
+    # shadow (RGBA)
+    shadow = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
+    pygame.draw.circle(
+        shadow, PLAYER_SHADOW,
+        (TILE_SIZE // 2, TILE_SIZE // 2 + 10),
+        radius + 6
+    )
+    screen.blit(shadow, (c * TILE_SIZE, TOP_BAR_H + r * TILE_SIZE))
+
+    # glow ring
+    glow = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
+    pygame.draw.circle(glow, PLAYER_GLOW, (TILE_SIZE //
+                       2, TILE_SIZE // 2), radius + 10)
+    screen.blit(glow, (c * TILE_SIZE, TOP_BAR_H + r * TILE_SIZE))
+
+    # body
+    pygame.draw.circle(screen, fill, (cx, cy), radius)
+    pygame.draw.circle(screen, edge, (cx, cy), radius, width=3)
+
+    # label (R / G)
+    txt = font_small.render(label, True, (10, 10, 12))
+    screen.blit(txt, (cx - txt.get_width() // 2, cy - txt.get_height() // 2))
+
+
+def draw_layout(screen, grid, font_exit, raj_pos, guard_pos):
     # Background
     screen.fill(BG)
 
@@ -79,6 +134,13 @@ def draw_layout(screen, grid, font_exit):
         y = TOP_BAR_H + i * TILE_SIZE
         pygame.draw.line(screen, GRID_LINE, (0, y), (BOARD_PX, y), 1)
 
+    # --- Draw players on top of tiles ---
+    rr, rc = raj_pos
+    gr, gc = guard_pos
+
+    draw_player(screen, rr, rc, RAJAKAR_FILL, RAJAKAR_EDGE, "R", font_exit)
+    draw_player(screen, gr, gc, GUARD_FILL, GUARD_EDGE, "G", font_exit)
+
 
 def main():
     pygame.init()
@@ -105,16 +167,77 @@ def main():
         "........",
     ]
     grid = Grid.from_ascii(ascii_map)
-    grid.place_random_exits(n=2, seed=7)  # seed makes it consistent each run
 
-    # Create temporary UI state for testing
-    state = {
-        "current": "Rajakar",
-        "turn": 0,
-        "max_turns": 60,
-        "seen": False,
-        "heard": False
+    # Spawn players + exits using smart spawn system
+    spawn = spawn_match(grid, seed=7)
+    rajakar_pos = spawn["rajakar"]
+    guard_pos = spawn["guard"]
+    exits = spawn["exits"]
+
+    # Clear any old exits and set the new ones
+    for (r, c) in grid.all_cells_of_type(EXIT):
+        grid.set(r, c, FLOOR)
+    for (r, c) in exits:
+        grid.set(r, c, EXIT)
+
+    # Game state variables
+    current = "Rajakar"   # Rajakar starts
+    turn_count = 0
+    winner = None         # "Rajakar" / "Guard" / "Draw" / None
+
+    # What each player knows about the opponent on THEIR upcoming turn:
+    clues = {
+        "Rajakar": {"seen": False, "heard": False},
+        "Guard":   {"seen": False, "heard": False},
     }
+
+    # UI state (updated every frame)
+    state = {
+        "current": current,
+        "turn": turn_count,
+        "max_turns": MAX_TURNS,
+        "seen": clues[current]["seen"],
+        "heard": clues[current]["heard"],
+    }
+
+    def end_turn(action_name: str):
+        nonlocal current, turn_count, winner
+        nonlocal rajakar_pos, guard_pos, clues
+
+        # 1) Check win conditions tied to the actor
+        if current == "Rajakar":
+            # Rajakar wins if standing on EXIT and used ESCAPE action
+            if action_name == "ESCAPE" and grid.get(*rajakar_pos) == EXIT:
+                winner = "Rajakar"
+        else:
+            # Guard wins if on the SAME tile as Rajakar (captured)
+            if guard_pos == rajakar_pos:
+                winner = "Guard"
+
+        # 2) Increment turn count and draw rule
+        turn_count += 1
+        if winner is None and turn_count >= MAX_TURNS:
+            winner = "Draw"
+
+        # 3) If game ended, don't switch turns
+        if winner is not None:
+            return
+
+        # 4) Update clues for the NEXT player (the one who will move now)
+        if current == "Rajakar":
+            # Guard is next: what can Guard sense about Rajakar?
+            seen = in_straight_sight(grid, guard_pos, rajakar_pos, SIGHT_RANGE)
+            heard = heard_noise(guard_pos, rajakar_pos,
+                                action_noise_radius(action_name))
+            clues["Guard"] = {"seen": seen, "heard": heard}
+            current = "Guard"
+        else:
+            # Rajakar is next: what can Rajakar sense about Guard?
+            seen = in_straight_sight(grid, rajakar_pos, guard_pos, SIGHT_RANGE)
+            heard = heard_noise(rajakar_pos, guard_pos,
+                                action_noise_radius(action_name))
+            clues["Rajakar"] = {"seen": seen, "heard": heard}
+            current = "Rajakar"
 
     running = True
     while running:
@@ -125,23 +248,107 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
 
-            # Test keyboard controls
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_t:
-                    state["current"] = "Guard" if state["current"] == "Rajakar" else "Rajakar"
-                elif event.key == pygame.K_v:
-                    state["seen"] = not state["seen"]
-                elif event.key == pygame.K_h:
-                    state["heard"] = not state["heard"]
-                elif event.key == pygame.K_n:
-                    state["turn"] = min(state["turn"] + 1, state["max_turns"])
+                # --- Restart (full respawn) ---
+                if event.key == pygame.K_r:
+                    spawn = spawn_match(grid)  # random new match
+                    rajakar_pos = spawn["rajakar"]
+                    guard_pos = spawn["guard"]
+                    exits = spawn["exits"]
+
+                    # reset exits on grid
+                    for (r, c) in grid.all_cells_of_type(EXIT):
+                        grid.set(r, c, FLOOR)
+                    for (r, c) in exits:
+                        grid.set(r, c, EXIT)
+
+                    current = "Rajakar"
+                    turn_count = 0
+                    winner = None
+                    clues = {"Rajakar": {"seen": False, "heard": False},
+                             "Guard": {"seen": False, "heard": False}}
+                    continue
+
+                # If game ended, ignore other inputs
+                if winner is not None:
+                    continue
+
+                acted = False
+                action_name = None
+
+                # --- Movement keys (Arrow or WASD) ---
+                move_map = {
+                    pygame.K_UP: (-1, 0),
+                    pygame.K_DOWN: (1, 0),
+                    pygame.K_LEFT: (0, -1),
+                    pygame.K_RIGHT: (0, 1),
+
+                    pygame.K_w: (-1, 0),
+                    pygame.K_s: (1, 0),
+                    pygame.K_a: (0, -1),
+                    pygame.K_d: (0, 1),
+                }
+
+                if event.key in move_map:
+                    dr, dc = move_map[event.key]
+                    if current == "Rajakar":
+                        new_pos, ok = try_move(grid, rajakar_pos, dr, dc)
+                        if ok:
+                            rajakar_pos = new_pos
+                            acted = True
+                            action_name = "MOVE"
+                    else:
+                        new_pos, ok = try_move(grid, guard_pos, dr, dc)
+                        if ok:
+                            guard_pos = new_pos
+                            acted = True
+                            action_name = "MOVE"
+
+                # --- Wait ---
+                elif event.key == pygame.K_SPACE:
+                    acted = True
+                    action_name = "WAIT"
+
+                # --- Escape (Rajakar only) ---
+                elif event.key == pygame.K_e:
+                    if current == "Rajakar" and grid.get(*rajakar_pos) == EXIT:
+                        acted = True
+                        action_name = "ESCAPE"
+
+                # If an action happened, end turn
+                if acted and action_name is not None:
+                    end_turn(action_name)
 
         # --- Update ---
-        # (nothing yet)
+        # Update UI state to match game state
+        state["current"] = current
+        state["turn"] = turn_count
+        state["max_turns"] = MAX_TURNS
+        state["seen"] = clues[current]["seen"]
+        state["heard"] = clues[current]["heard"]
 
         # --- Draw ---
-        draw_layout(screen, grid, font_small)
+        draw_layout(screen, grid, font_small, rajakar_pos, guard_pos)
         draw_ui(screen, fonts, state)
+
+        # Winner overlay
+        if winner is not None:
+            overlay = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 160))
+            screen.blit(overlay, (0, 0))
+
+            msg = f"{winner} WINS!" if winner in (
+                "Rajakar", "Guard") else "DRAW!"
+            big = pygame.font.SysFont("Segoe UI", 44, bold=True).render(
+                msg, True, (245, 245, 255))
+            small = pygame.font.SysFont("Segoe UI", 18).render(
+                "Press R to restart", True, (200, 200, 215))
+
+            screen.blit(
+                big, (BOARD_PX // 2 - big.get_width() // 2, SCREEN_H // 2 - 60))
+            screen.blit(
+                small, (BOARD_PX // 2 - small.get_width() // 2, SCREEN_H // 2 + 6))
+
         pygame.display.flip()
 
     pygame.quit()
