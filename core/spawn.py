@@ -29,7 +29,7 @@ def spawn_match(
         "guard": (r,c),
         "exits": [(r,c), (r,c)]
       }
-    Tries hard; if too strict for a given maze, relaxes in a controlled way.
+    Tries hard with strict constraints. Raises ValueError if impossible.
     """
     rng = random.Random(seed)
 
@@ -42,50 +42,44 @@ def spawn_match(
     if len(floors) < 10:
         raise ValueError("Maze has too few FLOOR cells to spawn fairly.")
 
-    # Relaxation ladder (only if needed)
-    guard_exit_levels = [min_guard_exit, 6, 4, 2]
-    exit_exit_levels = [min_exit_exit, 6, 4, 2]
+    for _ in range(attempts):
+        # --- pick Rajakar + Guard ---
+        raj = rng.choice(floors)
+        guard = rng.choice(floors)
+        if guard == raj:
+            continue
+        if manhattan(guard, raj) < min_rg:
+            continue
 
-    for ge in guard_exit_levels:
-        for ee in exit_exit_levels:
-            for _ in range(attempts):
-                # --- pick Rajakar + Guard ---
-                raj = rng.choice(floors)
-                guard = rng.choice(floors)
-                if guard == raj:
-                    continue
-                if manhattan(guard, raj) < min_rg:
-                    continue
+        # --- pick exits ---
+        # candidates must be FLOOR and not on players
+        candidates = [p for p in floors if p != raj and p != guard]
 
-                # --- pick exits ---
-                # candidates must be FLOOR and not on players
-                candidates = [p for p in floors if p != raj and p != guard]
+        # filter by thief-exit and guard-exit distances
+        candidates = [
+            p for p in candidates
+            if manhattan(p, raj) >= min_thief_exit and manhattan(p, guard) >= min_guard_exit
+        ]
+        if len(candidates) < exits_n:
+            continue
 
-                # filter by thief-exit and guard-exit distances
-                candidates = [
-                    p for p in candidates
-                    if manhattan(p, raj) >= min_thief_exit and manhattan(p, guard) >= ge
-                ]
-                if len(candidates) < exits_n:
-                    continue
+        rng.shuffle(candidates)
 
-                rng.shuffle(candidates)
+        exits: List[Pos] = []
+        for p in candidates:
+            if not exits:
+                exits.append(p)
+            else:
+                # keep far from existing exits
+                if all(manhattan(p, e) >= min_exit_exit for e in exits):
+                    exits.append(p)
+            if len(exits) == exits_n:
+                break
 
-                exits: List[Pos] = []
-                for p in candidates:
-                    if not exits:
-                        exits.append(p)
-                    else:
-                        # keep far from existing exits
-                        if all(manhattan(p, e) >= ee for e in exits):
-                            exits.append(p)
-                    if len(exits) == exits_n:
-                        break
+        if len(exits) != exits_n:
+            continue
 
-                if len(exits) != exits_n:
-                    continue
-
-                return {"rajakar": raj, "guard": guard, "exits": exits}
+        return {"rajakar": raj, "guard": guard, "exits": exits}
 
     raise ValueError(
         "Failed to spawn with constraints. Try a more open maze or reduce min distances.")

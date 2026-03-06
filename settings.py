@@ -23,6 +23,15 @@ NOISE_ESCAPE = 3
 
 MAX_TURNS = 60   # turns = single actions (60 turns = 30 rounds)
 
+# --- AI controls ---
+AUTO_PLAY_AI = True
+AI_TURN_DELAY_MS = 350
+GUARD_MINIMAX_DEPTH = 3
+
+# Guard special scan power: usable every N guard turns.
+GUARD_POWER_COOLDOWN_TURNS = 4
+GUARD_POWER_SCAN_RADIUS = 2
+
 # --- Colors (simple dark tactical theme) ---
 BG = (14, 14, 18)
 

@@ -76,6 +76,9 @@ def draw_ui(screen, fonts, state):
                f"Current: {state['current']}", card1.x + 16, card1.y + 58)
     _draw_text(screen, font_body,
                f"Turn Count: {state['turn']} / {state['max_turns']}", card1.x + 16, card1.y + 88)
+    peak = int(round(float(state.get("guard_peak", 0.0)) * 100))
+    _draw_text(screen, font_small,
+               f"Guard Confidence Peak: {peak}%", card1.x + 16, card1.y + 114, MUTED)
 
     y += 160
 
@@ -86,13 +89,16 @@ def draw_ui(screen, fonts, state):
 
     seen = state["seen"]
     heard = state["heard"]
+    is_rajakar_turn = state["current"] == "Rajakar"
 
-    _draw_text(screen, font_body, "Signals this turn:",
+    signal_title = "Contact this turn:" if is_rajakar_turn else "Signals this turn:"
+    _draw_text(screen, font_body, signal_title,
                card2.x + 16, card2.y + 58, MUTED)
 
     _draw_pill(
         screen, font_small,
-        "EYE:", "SEEN" if seen else "NOT SEEN",
+        "CONTACT:" if is_rajakar_turn else "VISION:",
+        "ADJACENT" if (is_rajakar_turn and seen) else ("NONE" if is_rajakar_turn else ("LOCKED" if seen else "NO LOCK")),
         card2.x + 16, card2.y + 92,
         ok=seen
     )
@@ -102,6 +108,13 @@ def draw_ui(screen, fonts, state):
         card2.x + 16, card2.y + 128,
         ok=heard
     )
+
+    if is_rajakar_turn:
+        _draw_text(screen, font_small, "Rajakar gets exact Guard position only when adjacent.",
+                   card2.x + 16, card2.y + 164, MUTED)
+    else:
+        _draw_text(screen, font_small, "Guard captures if adjacent after Guard move.",
+                   card2.x + 16, card2.y + 164, MUTED)
 
     y += 210
 

@@ -11,12 +11,26 @@ from settings import (
     RAJAKAR_FILL, RAJAKAR_EDGE,
     GUARD_FILL, GUARD_EDGE,
     PLAYER_SHADOW, PLAYER_GLOW,
-    SIGHT_RANGE, NOISE_MOVE, NOISE_WAIT, NOISE_ESCAPE, MAX_TURNS
+    SIGHT_RANGE, NOISE_MOVE, NOISE_WAIT, NOISE_ESCAPE, MAX_TURNS,
+    AUTO_PLAY_AI, AI_TURN_DELAY_MS,
+    GUARD_POWER_COOLDOWN_TURNS, GUARD_POWER_SCAN_RADIUS
 )
 from render.ui import draw_ui
 from core.grid import Grid, FLOOR, WALL, EXIT
 from core.spawn import spawn_match
-from core.rules import manhattan, in_straight_sight, heard_noise
+from core.rules import (
+    manhattan,
+    heard_noise,
+    in_power_scan,
+    power_scan_cells,
+    in_orthogonal_range,
+)
+from core.ai import choose_guard_minimax_action, choose_rajakar_fuzzy_action
+from core.ai import (
+    choose_guard_probability_action,
+    init_guard_probability_map,
+    update_guard_probability_map,
+)
 
 
 def try_move(grid, pos, dr, dc):
@@ -68,7 +82,7 @@ def draw_player(screen, r, c, fill, edge, label, font_small):
     screen.blit(txt, (cx - txt.get_width() // 2, cy - txt.get_height() // 2))
 
 
-def draw_layout(screen, grid, font_exit, raj_pos, guard_pos):
+def draw_layout(screen, grid, font_exit, raj_pos, guard_pos, scan_cells=None):
     # Background
     screen.fill(BG)
 
@@ -125,6 +139,15 @@ def draw_layout(screen, grid, font_exit, raj_pos, guard_pos):
                     ly = y + (TILE_SIZE - label.get_height()) // 2
                     screen.blit(label, (lx, ly))
 
+    # Guard power scan overlay (transparent blue cells)
+    if scan_cells:
+        for r, c in scan_cells:
+            x = c * TILE_SIZE
+            y = TOP_BAR_H + r * TILE_SIZE
+            overlay = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
+            overlay.fill((70, 170, 255, 80))
+            screen.blit(overlay, (x, y))
+
     # Grid lines (on top for crisp look)
     for i in range(GRID_SIZE + 1):
         x = i * TILE_SIZE
@@ -161,7 +184,7 @@ def main():
         ".##..#..",
         ".#...#..",
         ".#..##..",
-        "...#....",
+        "........",
         "..##..#.",
         "...#....",
         "........",
@@ -169,7 +192,7 @@ def main():
     grid = Grid.from_ascii(ascii_map)
 
     # Spawn players + exits using smart spawn system
-    spawn = spawn_match(grid, seed=7)
+    spawn = spawn_match(grid, seed=7, exits_n=2)
     rajakar_pos = spawn["rajakar"]
     guard_pos = spawn["guard"]
     exits = spawn["exits"]
@@ -183,7 +206,13 @@ def main():
     # Game state variables
     current = "Rajakar"   # Rajakar starts
     turn_count = 0
+    guard_turns_taken = 0
     winner = None         # "Rajakar" / "Guard" / "Draw" / None
+    rajakar_visit_counts = {rajakar_pos: 1}
+    scan_fx_cells = []
+    scan_fx_until_ms = 0
+    guard_prob_map = init_guard_probability_map(grid, guard_pos)
+    last_guard_pos = None
 
     # What each player knows about the opponent on THEIR upcoming turn:
     clues = {
@@ -198,20 +227,27 @@ def main():
         "max_turns": MAX_TURNS,
         "seen": clues[current]["seen"],
         "heard": clues[current]["heard"],
+        "guard_peak": max(guard_prob_map.values()) if guard_prob_map else 0.0,
     }
 
     def end_turn(action_name: str):
         nonlocal current, turn_count, winner
-        nonlocal rajakar_pos, guard_pos, clues
+        nonlocal rajakar_pos, guard_pos, clues, guard_turns_taken, rajakar_visit_counts
+        nonlocal scan_fx_cells, scan_fx_until_ms, guard_prob_map
 
         # 1) Check win conditions tied to the actor
         if current == "Rajakar":
-            # Rajakar wins if standing on EXIT and used ESCAPE action
-            if action_name == "ESCAPE" and grid.get(*rajakar_pos) == EXIT:
+            rajakar_visit_counts[rajakar_pos] = rajakar_visit_counts.get(rajakar_pos, 0) + 1
+            # Immediate capture: adjacency to Guard ends the game instantly.
+            if manhattan(guard_pos, rajakar_pos) == 1:
+                winner = "Guard"
+            # Rajakar wins if standing on EXIT and used ESCAPE action.
+            elif action_name == "ESCAPE" and grid.get(*rajakar_pos) == EXIT:
                 winner = "Rajakar"
         else:
-            # Guard wins if on the SAME tile as Rajakar (captured)
-            if guard_pos == rajakar_pos:
+            guard_turns_taken += 1
+            # Guard wins if adjacent to Rajakar after Guard action.
+            if manhattan(guard_pos, rajakar_pos) == 1:
                 winner = "Guard"
 
         # 2) Increment turn count and draw rule
@@ -226,20 +262,45 @@ def main():
         # 4) Update clues for the NEXT player (the one who will move now)
         if current == "Rajakar":
             # Guard is next: what can Guard sense about Rajakar?
-            seen = in_straight_sight(grid, guard_pos, rajakar_pos, SIGHT_RANGE)
+            seen = in_orthogonal_range(guard_pos, rajakar_pos, SIGHT_RANGE)
+            next_guard_turn_number = guard_turns_taken + 1
+            power_ready = (
+                GUARD_POWER_COOLDOWN_TURNS > 0
+                and next_guard_turn_number >= GUARD_POWER_COOLDOWN_TURNS
+                and next_guard_turn_number % GUARD_POWER_COOLDOWN_TURNS == 0
+            )
+            if power_ready and in_power_scan(guard_pos, rajakar_pos, GUARD_POWER_SCAN_RADIUS):
+                seen = True
+            if power_ready:
+                scan_fx_cells = power_scan_cells(grid, guard_pos, GUARD_POWER_SCAN_RADIUS)
+                scan_fx_until_ms = pygame.time.get_ticks() + max(450, AI_TURN_DELAY_MS)
             heard = heard_noise(guard_pos, rajakar_pos,
                                 action_noise_radius(action_name))
             clues["Guard"] = {"seen": seen, "heard": heard}
+            guard_prob_map = update_guard_probability_map(
+                grid,
+                guard_prob_map,
+                guard_pos,
+                heard=heard,
+                noise_radius=action_noise_radius(action_name),
+                seen=seen,
+                seen_pos=rajakar_pos if seen else None,
+                power_used=power_ready,
+                sight_range=SIGHT_RANGE,
+                scan_radius=GUARD_POWER_SCAN_RADIUS,
+            )
             current = "Guard"
         else:
             # Rajakar is next: what can Rajakar sense about Guard?
-            seen = in_straight_sight(grid, rajakar_pos, guard_pos, SIGHT_RANGE)
+            seen = manhattan(rajakar_pos, guard_pos) == 1
             heard = heard_noise(rajakar_pos, guard_pos,
                                 action_noise_radius(action_name))
             clues["Rajakar"] = {"seen": seen, "heard": heard}
             current = "Rajakar"
 
     running = True
+    last_ai_tick = pygame.time.get_ticks()
+
     while running:
         dt = clock.tick(FPS) / 1000.0  # seconds since last frame
 
@@ -251,7 +312,7 @@ def main():
             if event.type == pygame.KEYDOWN:
                 # --- Restart (full respawn) ---
                 if event.key == pygame.K_r:
-                    spawn = spawn_match(grid)  # random new match
+                    spawn = spawn_match(grid, exits_n=2)  # random new match
                     rajakar_pos = spawn["rajakar"]
                     guard_pos = spawn["guard"]
                     exits = spawn["exits"]
@@ -264,13 +325,23 @@ def main():
 
                     current = "Rajakar"
                     turn_count = 0
+                    guard_turns_taken = 0
                     winner = None
+                    rajakar_visit_counts = {rajakar_pos: 1}
+                    scan_fx_cells = []
+                    scan_fx_until_ms = 0
+                    guard_prob_map = init_guard_probability_map(grid, guard_pos)
+                    last_guard_pos = None
                     clues = {"Rajakar": {"seen": False, "heard": False},
                              "Guard": {"seen": False, "heard": False}}
                     continue
 
                 # If game ended, ignore other inputs
                 if winner is not None:
+                    continue
+
+                # In AI autoplay mode, keep controls only for restart.
+                if AUTO_PLAY_AI:
                     continue
 
                 acted = False
@@ -300,14 +371,16 @@ def main():
                     else:
                         new_pos, ok = try_move(grid, guard_pos, dr, dc)
                         if ok:
+                            last_guard_pos = guard_pos
                             guard_pos = new_pos
                             acted = True
                             action_name = "MOVE"
 
                 # --- Wait ---
                 elif event.key == pygame.K_SPACE:
-                    acted = True
-                    action_name = "WAIT"
+                    if current == "Rajakar":
+                        acted = True
+                        action_name = "WAIT"
 
                 # --- Escape (Rajakar only) ---
                 elif event.key == pygame.K_e:
@@ -319,6 +392,46 @@ def main():
                 if acted and action_name is not None:
                     end_turn(action_name)
 
+        # --- AI turn ---
+        if winner is None and AUTO_PLAY_AI:
+            now = pygame.time.get_ticks()
+            if now - last_ai_tick >= AI_TURN_DELAY_MS:
+                if current == "Guard":
+                    if clues["Guard"]["seen"]:
+                        action_name, next_guard = choose_guard_minimax_action(
+                            grid,
+                            guard_pos,
+                            rajakar_pos,
+                            turn_count,
+                            MAX_TURNS,
+                            SIGHT_RANGE,
+                            depth=3,
+                        )
+                    else:
+                        action_name, next_guard = choose_guard_probability_action(
+                            grid,
+                            guard_pos,
+                            guard_prob_map,
+                            last_guard_pos=last_guard_pos,
+                        )
+                    if action_name == "MOVE":
+                        last_guard_pos = guard_pos
+                        guard_pos = next_guard
+                else:
+                    raj_target = guard_pos if clues["Rajakar"]["seen"] else None
+                    action_name, next_raj = choose_rajakar_fuzzy_action(
+                        grid,
+                        rajakar_pos,
+                        raj_target,
+                        clues["Rajakar"],
+                        rajakar_visit_counts,
+                    )
+                    if action_name == "MOVE":
+                        rajakar_pos = next_raj
+
+                end_turn(action_name)
+                last_ai_tick = now
+
         # --- Update ---
         # Update UI state to match game state
         state["current"] = current
@@ -326,9 +439,11 @@ def main():
         state["max_turns"] = MAX_TURNS
         state["seen"] = clues[current]["seen"]
         state["heard"] = clues[current]["heard"]
+        state["guard_peak"] = max(guard_prob_map.values()) if guard_prob_map else 0.0
 
         # --- Draw ---
-        draw_layout(screen, grid, font_small, rajakar_pos, guard_pos)
+        active_scan_cells = scan_fx_cells if pygame.time.get_ticks() < scan_fx_until_ms else None
+        draw_layout(screen, grid, font_small, rajakar_pos, guard_pos, active_scan_cells)
         draw_ui(screen, fonts, state)
 
         # Winner overlay
