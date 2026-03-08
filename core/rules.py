@@ -85,3 +85,54 @@ def in_orthogonal_range(viewer: Pos, target: Pos, rng: int) -> bool:
     if vc == tc:
         return abs(vr - tr) <= rng
     return False
+
+
+def in_directional_sight(grid: Grid, viewer: Pos, target: Pos, facing: Tuple[int, int], rng: int) -> bool:
+    """
+    Check if target is visible in the direction the viewer is facing.
+    facing is (dr, dc) like (-1, 0) for up, (1, 0) for down, (0, -1) for left, (0, 1) for right.
+    Sight stops at WALL.
+    """
+    if facing == (0, 0):  # Not facing any direction
+        return False
+    
+    vr, vc = viewer
+    tr, tc = target
+    dr, dc = facing
+    
+    # Check if target is in the correct direction
+    if dr != 0:  # Facing up or down
+        if vc != tc:  # Target must be in same column
+            return False
+        if dr > 0 and tr <= vr:  # Facing down but target is above/same
+            return False
+        if dr < 0 and tr >= vr:  # Facing up but target is below/same
+            return False
+        dist = abs(tr - vr)
+    elif dc != 0:  # Facing left or right
+        if vr != tr:  # Target must be in same row
+            return False
+        if dc > 0 and tc <= vc:  # Facing right but target is left/same
+            return False
+        if dc < 0 and tc >= vc:  # Facing left but target is right/same
+            return False
+        dist = abs(tc - vc)
+    else:
+        return False
+    
+    if dist == 0 or dist > rng:
+        return False
+    
+    # Check for walls blocking the view
+    step_r = dr if dr != 0 else 0
+    step_c = dc if dc != 0 else 0
+    
+    for step in range(1, dist + 1):
+        check_r = vr + step_r * step
+        check_c = vc + step_c * step
+        if not grid.in_bounds(check_r, check_c):
+            return False
+        if grid.get(check_r, check_c) == WALL:
+            return False
+    
+    return True

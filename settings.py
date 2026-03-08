@@ -1,6 +1,6 @@
 # settings.py
 
-GRID_SIZE = 8          # 8x8
+GRID_SIZE = 10         # 10x10
 TILE_SIZE = 64         # 48 or 64 recommended
 
 BOARD_PX = GRID_SIZE * TILE_SIZE

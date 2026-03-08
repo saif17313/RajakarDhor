@@ -77,8 +77,10 @@ def draw_ui(screen, fonts, state):
     _draw_text(screen, font_body,
                f"Turn Count: {state['turn']} / {state['max_turns']}", card1.x + 16, card1.y + 88)
     peak = int(round(float(state.get("guard_peak", 0.0)) * 100))
+    exits_known = state.get("guard_exits_known", 0)
+    exits_total = state.get("exits_total", 0)
     _draw_text(screen, font_small,
-               f"Guard Confidence Peak: {peak}%", card1.x + 16, card1.y + 114, MUTED)
+               f"Guard Confidence: {peak}% | Exits: {exits_known}/{exits_total}", card1.x + 16, card1.y + 114, MUTED)
 
     y += 160
 

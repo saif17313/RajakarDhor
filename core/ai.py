@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Callable, Dict, List, Optional, Tuple
 
 from core.grid import EXIT, Grid
-from core.rules import in_orthogonal_range, in_power_scan, in_straight_sight, manhattan
+from core.rules import in_orthogonal_range, in_power_scan, manhattan
 
 Pos = Tuple[int, int]
 Action = str
@@ -159,8 +159,12 @@ def _legal_moves(grid: Grid, pos: Pos) -> List[Pos]:
     return out
 
 
-def _nearest_exit_distance(grid: Grid, pos: Pos) -> int:
-    exits = grid.all_cells_of_type(EXIT)
+def _nearest_exit_distance(grid: Grid, pos: Pos, known_exits: List[Pos] = None) -> int:
+    """Distance to nearest exit. If known_exits provided, only considers those."""
+    if known_exits is not None:
+        exits = known_exits
+    else:
+        exits = grid.all_cells_of_type(EXIT)
     if not exits:
         return 999
     return min(manhattan(pos, ex) for ex in exits)
@@ -171,28 +175,34 @@ def _guard_heuristic(
     guard_pos: Pos,
     raj_pos: Optional[Pos],
     sight_range: int,
+    known_exits: List[Pos] = None,
 ) -> float:
     if raj_pos is None:
-        return _guard_unknown_heuristic(grid, guard_pos)
+        return _guard_unknown_heuristic(grid, guard_pos, known_exits)
 
     dist_gr = manhattan(guard_pos, raj_pos)
-    dist_re = _nearest_exit_distance(grid, raj_pos)
+    dist_re = _nearest_exit_distance(grid, raj_pos, known_exits)
 
     score = 0.0
     score += max(0, 12 - dist_gr) * 8.0
-    score -= max(0, 10 - dist_re) * 5.0
-
-    if in_straight_sight(grid, guard_pos, raj_pos, sight_range):
-        score += 22.0
+    
+    # Only penalize Rajakar near exits if Guard knows about exits
+    if known_exits:
+        score -= max(0, 10 - dist_re) * 5.0
 
     return score
 
 
-def _guard_unknown_heuristic(grid: Grid, guard_pos: Pos) -> float:
-    # When Rajakar is unseen, patrol toward exits to deny escape zones.
-    dist_ge = _nearest_exit_distance(grid, guard_pos)
+def _guard_unknown_heuristic(grid: Grid, guard_pos: Pos, known_exits: List[Pos] = None) -> float:
+    # When Rajakar is unseen, patrol toward known exits to deny escape zones.
     score = 0.0
-    score += max(0, 10 - dist_ge) * 5.0
+    
+    # Only patrol toward exits if Guard has discovered any
+    if known_exits:
+        dist_ge = _nearest_exit_distance(grid, guard_pos, known_exits)
+        score += max(0, 10 - dist_ge) * 5.0
+    
+    # Prefer positions with more movement options (central locations)
     score += len(_legal_moves(grid, guard_pos)) * 0.2
     return score
 
@@ -266,18 +276,23 @@ def choose_guard_minimax_action(
     turn_count: int,
     max_turns: int,
     sight_range: int,
+    known_exits: List[Pos] = None,
     depth: int = 3,
 ) -> Tuple[Action, Pos]:
-    """Return the Guard action chosen by depth-limited minimax with alpha-beta pruning."""
+    """Return the Guard action chosen by depth-limited minimax with alpha-beta pruning.
+    
+    Args:
+        known_exits: List of exit positions the Guard has discovered (fog-of-war).
+    """
 
     legal_moves = _legal_moves(grid, guard_pos)
 
     if raj_pos is None:
         if legal_moves:
             best_move = legal_moves[0]
-            best_value = _guard_unknown_heuristic(grid, best_move)
+            best_value = _guard_unknown_heuristic(grid, best_move, known_exits)
             for m in legal_moves[1:]:
-                value = _guard_unknown_heuristic(grid, m)
+                value = _guard_unknown_heuristic(grid, m, known_exits)
                 if value > best_value:
                     best_value = value
                     best_move = m
@@ -294,7 +309,7 @@ def choose_guard_minimax_action(
         beta: float,
     ) -> float:
         if ply == 0:
-            return _guard_heuristic(grid, gpos, rpos, sight_range)
+            return _guard_heuristic(grid, gpos, rpos, sight_range, known_exits)
 
         actions = _guard_actions(grid, gpos) if actor == "Guard" else _raj_actions(grid, rpos)
         if not actions:
@@ -310,7 +325,7 @@ def choose_guard_minimax_action(
                 elif winner == "Rajakar":
                     value = -10000.0 - ply
                 elif winner == "Draw":
-                    value = _guard_heuristic(grid, ng, nr, sight_range)
+                    value = _guard_heuristic(grid, ng, nr, sight_range, known_exits)
                 else:
                     value = minimax(ng, nr, "Rajakar", turn + 1, ply - 1, alpha, beta)
 
@@ -331,7 +346,7 @@ def choose_guard_minimax_action(
             elif winner == "Rajakar":
                 value = -10000.0 - ply
             elif winner == "Draw":
-                value = _guard_heuristic(grid, ng, nr, sight_range)
+                value = _guard_heuristic(grid, ng, nr, sight_range, known_exits)
             else:
                 value = minimax(ng, nr, "Guard", turn + 1, ply - 1, alpha, beta)
 
@@ -355,7 +370,7 @@ def choose_guard_minimax_action(
         elif winner == "Rajakar":
             value = -10000.0
         elif winner == "Draw":
-            value = _guard_heuristic(grid, ng, nr, sight_range)
+            value = _guard_heuristic(grid, ng, nr, sight_range, known_exits)
         else:
             value = minimax(ng, nr, "Rajakar", turn_count + 1, depth - 1, -1e12, 1e12)
 
@@ -403,6 +418,10 @@ def choose_rajakar_fuzzy_action(
     curr_guard_dist = manhattan(raj_pos, guard_pos) if guard_pos is not None else None
     seen_bonus = 1.0 if clues.get("seen", False) else 0.0
     heard_bonus = 0.6 if clues.get("heard", False) else 0.0
+    
+    # Guard is only detected if Rajakar can actually see it (plain sight)
+    guard_detected = clues.get("seen", False)
+    
     compelled_revisit = bool(moves) and all(visit_counts.get(p, 0) > 0 for p in moves)
 
     best = ("WAIT", raj_pos)
@@ -427,6 +446,10 @@ def choose_rajakar_fuzzy_action(
             score += 10.0 + (1.0 - danger)
 
         if action == "MOVE":
+            # Rule: If Guard is visible in plain sight, strongly prioritize evasion
+            if guard_detected and moving_away_from_guard:
+                score += 6.0  # Strong evasion bonus when Guard is sighted
+            
             # Rule: If danger is high, prioritize creating distance from guard.
             if moving_away_from_guard:
                 score += danger * 4.5 + far_guard * 2.0

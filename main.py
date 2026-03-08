@@ -1,36 +1,11 @@
 # main.py
 import pygame
-from settings import (
-    SCREEN_W, SCREEN_H, FPS, TITLE,
-    GRID_SIZE, TILE_SIZE, BOARD_PX,
-    UI_PANEL_W, TOP_BAR_H,
-    BG, TOP_BAR_BG, PANEL_BG, BOARD_BG,
-    GRID_LINE, TILE_A, TILE_B,
-    WALL_FILL, WALL_EDGE,
-    EXIT_FILL, EXIT_EDGE, EXIT_GLOW,
-    RAJAKAR_FILL, RAJAKAR_EDGE,
-    GUARD_FILL, GUARD_EDGE,
-    PLAYER_SHADOW, PLAYER_GLOW,
-    SIGHT_RANGE, NOISE_MOVE, NOISE_WAIT, NOISE_ESCAPE, MAX_TURNS,
-    AUTO_PLAY_AI, AI_TURN_DELAY_MS,
-    GUARD_POWER_COOLDOWN_TURNS, GUARD_POWER_SCAN_RADIUS
-)
-from render.ui import draw_ui
+import settings as s
+import core.rules as rules
+import core.ai as ai
 from core.grid import Grid, FLOOR, WALL, EXIT
 from core.spawn import spawn_match
-from core.rules import (
-    manhattan,
-    heard_noise,
-    in_power_scan,
-    power_scan_cells,
-    in_orthogonal_range,
-)
-from core.ai import choose_guard_minimax_action, choose_rajakar_fuzzy_action
-from core.ai import (
-    choose_guard_probability_action,
-    init_guard_probability_map,
-    update_guard_probability_map,
-)
+from render.ui import draw_ui
 
 
 def try_move(grid, pos, dr, dc):
@@ -43,133 +18,188 @@ def try_move(grid, pos, dr, dc):
 
 def action_noise_radius(action_name: str) -> int:
     if action_name == "MOVE":
-        return NOISE_MOVE
+        return s.NOISE_MOVE
     if action_name == "WAIT":
-        return NOISE_WAIT
+        return s.NOISE_WAIT
     if action_name == "ESCAPE":
-        return NOISE_ESCAPE
+        return s.NOISE_ESCAPE
     return 0
 
 
-def draw_player(screen, r, c, fill, edge, label, font_small):
+def draw_player(screen, r, c, fill, edge, label, font_small, facing=None):
     # tile center
-    cx = c * TILE_SIZE + TILE_SIZE // 2
-    cy = TOP_BAR_H + r * TILE_SIZE + TILE_SIZE // 2
+    cx = c * s.TILE_SIZE + s.TILE_SIZE // 2
+    cy = s.TOP_BAR_H + r * s.TILE_SIZE + s.TILE_SIZE // 2
 
-    radius = int(TILE_SIZE * 0.30)
+    radius = int(s.TILE_SIZE * 0.30)
 
     # shadow (RGBA)
-    shadow = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
+    shadow = pygame.Surface((s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
     pygame.draw.circle(
-        shadow, PLAYER_SHADOW,
-        (TILE_SIZE // 2, TILE_SIZE // 2 + 10),
+        shadow, s.PLAYER_SHADOW,
+        (s.TILE_SIZE // 2, s.TILE_SIZE // 2 + 10),
         radius + 6
     )
-    screen.blit(shadow, (c * TILE_SIZE, TOP_BAR_H + r * TILE_SIZE))
+    screen.blit(shadow, (c * s.TILE_SIZE, s.TOP_BAR_H + r * s.TILE_SIZE))
 
     # glow ring
-    glow = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
-    pygame.draw.circle(glow, PLAYER_GLOW, (TILE_SIZE //
-                       2, TILE_SIZE // 2), radius + 10)
-    screen.blit(glow, (c * TILE_SIZE, TOP_BAR_H + r * TILE_SIZE))
+    glow = pygame.Surface((s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
+    pygame.draw.circle(glow, s.PLAYER_GLOW, (s.TILE_SIZE //
+                       2, s.TILE_SIZE // 2), radius + 10)
+    screen.blit(glow, (c * s.TILE_SIZE, s.TOP_BAR_H + r * s.TILE_SIZE))
 
     # body
     pygame.draw.circle(screen, fill, (cx, cy), radius)
     pygame.draw.circle(screen, edge, (cx, cy), radius, width=3)
+
+    # Direction indicator (arrow) for facing direction
+    if facing is not None:
+        dr, dc = facing
+        arrow_len = int(radius * 0.6)
+        arrow_end_x = cx + dc * arrow_len
+        arrow_end_y = cy + dr * arrow_len
+        # Draw arrow line
+        pygame.draw.line(screen, (10, 10, 12), (cx, cy), (arrow_end_x, arrow_end_y), 3)
+        # Draw arrow head (small triangle)
+        head_size = 5
+        if dr != 0:  # Vertical
+            points = [
+                (arrow_end_x, arrow_end_y),
+                (arrow_end_x - head_size, arrow_end_y - dr * head_size),
+                (arrow_end_x + head_size, arrow_end_y - dr * head_size)
+            ]
+        else:  # Horizontal
+            points = [
+                (arrow_end_x, arrow_end_y),
+                (arrow_end_x - dc * head_size, arrow_end_y - head_size),
+                (arrow_end_x - dc * head_size, arrow_end_y + head_size)
+            ]
+        pygame.draw.polygon(screen, (10, 10, 12), points)
 
     # label (R / G)
     txt = font_small.render(label, True, (10, 10, 12))
     screen.blit(txt, (cx - txt.get_width() // 2, cy - txt.get_height() // 2))
 
 
-def draw_layout(screen, grid, font_exit, raj_pos, guard_pos, scan_cells=None):
+def draw_layout(screen, grid, font_exit, raj_pos, guard_pos, guard_facing, scan_cells=None):
     # Background
-    screen.fill(BG)
+    screen.fill(s.BG)
 
     # Top bar
-    top_bar_rect = pygame.Rect(0, 0, SCREEN_W, TOP_BAR_H)
-    pygame.draw.rect(screen, TOP_BAR_BG, top_bar_rect)
+    top_bar_rect = pygame.Rect(0, 0, s.SCREEN_W, s.TOP_BAR_H)
+    pygame.draw.rect(screen, s.TOP_BAR_BG, top_bar_rect)
 
     # Board area
-    board_rect = pygame.Rect(0, TOP_BAR_H, BOARD_PX, BOARD_PX)
-    pygame.draw.rect(screen, BOARD_BG, board_rect)
+    board_rect = pygame.Rect(0, s.TOP_BAR_H, s.BOARD_PX, s.BOARD_PX)
+    pygame.draw.rect(screen, s.BOARD_BG, board_rect)
 
     # UI panel
-    panel_rect = pygame.Rect(BOARD_PX, 0, UI_PANEL_W, SCREEN_H)
-    pygame.draw.rect(screen, PANEL_BG, panel_rect)
+    panel_rect = pygame.Rect(s.BOARD_PX, 0, s.UI_PANEL_W, s.SCREEN_H)
+    pygame.draw.rect(screen, s.PANEL_BG, panel_rect)
 
     # Divider line
-    pygame.draw.line(screen, GRID_LINE, (BOARD_PX, 0), (BOARD_PX, SCREEN_H), 2)
+    pygame.draw.line(screen, s.GRID_LINE, (s.BOARD_PX, 0), (s.BOARD_PX, s.SCREEN_H), 2)
 
     # --- Draw tiles from grid ---
-    for r in range(GRID_SIZE):
-        for c in range(GRID_SIZE):
-            x = c * TILE_SIZE
-            y = TOP_BAR_H + r * TILE_SIZE
-            rect = pygame.Rect(x, y, TILE_SIZE, TILE_SIZE)
+    for r in range(s.GRID_SIZE):
+        for c in range(s.GRID_SIZE):
+            x = c * s.TILE_SIZE
+            y = s.TOP_BAR_H + r * s.TILE_SIZE
+            rect = pygame.Rect(x, y, s.TILE_SIZE, s.TILE_SIZE)
 
             t = grid.get(r, c)
 
             if t == WALL:
-                pygame.draw.rect(screen, WALL_FILL, rect)
-                pygame.draw.rect(screen, WALL_EDGE, rect, width=2)
+                pygame.draw.rect(screen, s.WALL_FILL, rect)
+                pygame.draw.rect(screen, s.WALL_EDGE, rect, width=2)
 
             else:
                 # floor (keep your nice checkerboard for walkable tiles)
-                base = TILE_A if (r + c) % 2 == 0 else TILE_B
+                base = s.TILE_A if (r + c) % 2 == 0 else s.TILE_B
                 pygame.draw.rect(screen, base, rect)
 
                 if t == EXIT:
                     # exit overlay
-                    pygame.draw.rect(screen, EXIT_FILL, rect, border_radius=10)
+                    pygame.draw.rect(screen, s.EXIT_FILL, rect, border_radius=10)
 
                     # glow (cheap but looks great)
                     glow = pygame.Surface(
-                        (TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
+                        (s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
                     pygame.draw.rect(
-                        glow, EXIT_GLOW, glow.get_rect(), border_radius=10)
+                        glow, s.EXIT_GLOW, glow.get_rect(), border_radius=10)
                     screen.blit(glow, (x, y))
 
-                    pygame.draw.rect(screen, EXIT_EDGE, rect,
+                    pygame.draw.rect(screen, s.EXIT_EDGE, rect,
                                      width=3, border_radius=10)
 
                     # small "E" mark
                     label = font_exit.render("E", True, (10, 10, 12))
-                    lx = x + (TILE_SIZE - label.get_width()) // 2
-                    ly = y + (TILE_SIZE - label.get_height()) // 2
+                    lx = x + (s.TILE_SIZE - label.get_width()) // 2
+                    ly = y + (s.TILE_SIZE - label.get_height()) // 2
                     screen.blit(label, (lx, ly))
 
     # Guard power scan overlay (transparent blue cells)
     if scan_cells:
         for r, c in scan_cells:
-            x = c * TILE_SIZE
-            y = TOP_BAR_H + r * TILE_SIZE
-            overlay = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
+            x = c * s.TILE_SIZE
+            y = s.TOP_BAR_H + r * s.TILE_SIZE
+            overlay = pygame.Surface((s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
             overlay.fill((70, 170, 255, 80))
+            screen.blit(overlay, (x, y))
+    
+    # Guard vision cone (show what Guard can see)
+    if guard_facing != (0, 0):
+        gr, gc = guard_pos
+        dr, dc = guard_facing
+        for step in range(1, s.SIGHT_RANGE + 1):
+            vr, vc = gr + dr * step, gc + dc * step
+            if not grid.in_bounds(vr, vc):
+                break
+            if grid.get(vr, vc) == WALL:
+                break
+            x = vc * s.TILE_SIZE
+            y = s.TOP_BAR_H + vr * s.TILE_SIZE
+            overlay = pygame.Surface((s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
+            overlay.fill((90, 180, 255, 40))  # Light blue tint for vision
+            screen.blit(overlay, (x, y))
+    
+    # Rajakar vision (4 directions: up, down, left, right)
+    rr, rc = raj_pos
+    for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:  # up, down, left, right
+        for step in range(1, s.SIGHT_RANGE + 1):
+            vr, vc = rr + dr * step, rc + dc * step
+            if not grid.in_bounds(vr, vc):
+                break
+            if grid.get(vr, vc) == WALL:
+                break
+            x = vc * s.TILE_SIZE
+            y = s.TOP_BAR_H + vr * s.TILE_SIZE
+            overlay = pygame.Surface((s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
+            overlay.fill((240, 190, 70, 30))  # Light gold tint for Rajakar vision
             screen.blit(overlay, (x, y))
 
     # Grid lines (on top for crisp look)
-    for i in range(GRID_SIZE + 1):
-        x = i * TILE_SIZE
-        pygame.draw.line(screen, GRID_LINE, (x, TOP_BAR_H),
-                         (x, TOP_BAR_H + BOARD_PX), 1)
+    for i in range(s.GRID_SIZE + 1):
+        x = i * s.TILE_SIZE
+        pygame.draw.line(screen, s.GRID_LINE, (x, s.TOP_BAR_H),
+                         (x, s.TOP_BAR_H + s.BOARD_PX), 1)
 
-        y = TOP_BAR_H + i * TILE_SIZE
-        pygame.draw.line(screen, GRID_LINE, (0, y), (BOARD_PX, y), 1)
+        y = s.TOP_BAR_H + i * s.TILE_SIZE
+        pygame.draw.line(screen, s.GRID_LINE, (0, y), (s.BOARD_PX, y), 1)
 
     # --- Draw players on top of tiles ---
     rr, rc = raj_pos
     gr, gc = guard_pos
 
-    draw_player(screen, rr, rc, RAJAKAR_FILL, RAJAKAR_EDGE, "R", font_exit)
-    draw_player(screen, gr, gc, GUARD_FILL, GUARD_EDGE, "G", font_exit)
+    draw_player(screen, rr, rc, s.RAJAKAR_FILL, s.RAJAKAR_EDGE, "R", font_exit)
+    draw_player(screen, gr, gc, s.GUARD_FILL, s.GUARD_EDGE, "G", font_exit, facing=guard_facing)
 
 
 def main():
     pygame.init()
-    pygame.display.set_caption(TITLE)
+    pygame.display.set_caption(s.TITLE)
 
-    screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
+    screen = pygame.display.set_mode((s.SCREEN_W, s.SCREEN_H))
     clock = pygame.time.Clock()
 
     # Create fonts
@@ -180,14 +210,16 @@ def main():
 
     # --- Create a test maze (you can change this anytime) ---
     ascii_map = [
-        "........",
-        ".##..#..",
-        ".#...#..",
-        ".#..##..",
-        "........",
-        "..##..#.",
-        "...#....",
-        "........",
+        "..........",
+        ".##..#....",
+        ".#...#....",
+        ".#..##....",
+        "..........",
+        "..##..#...",
+        "...#......",
+        "..........",
+        "..#...##..",
+        "..........",
     ]
     grid = Grid.from_ascii(ascii_map)
 
@@ -211,8 +243,10 @@ def main():
     rajakar_visit_counts = {rajakar_pos: 1}
     scan_fx_cells = []
     scan_fx_until_ms = 0
-    guard_prob_map = init_guard_probability_map(grid, guard_pos)
+    guard_prob_map = ai.init_guard_probability_map(grid, guard_pos)
     last_guard_pos = None
+    guard_known_exits = []  # Fog-of-war: Guard discovers exits through vision
+    guard_facing = (1, 0)  # Direction Guard is facing (dr, dc), starts facing down
 
     # What each player knows about the opponent on THEIR upcoming turn:
     clues = {
@@ -224,7 +258,7 @@ def main():
     state = {
         "current": current,
         "turn": turn_count,
-        "max_turns": MAX_TURNS,
+        "max_turns": s.MAX_TURNS,
         "seen": clues[current]["seen"],
         "heard": clues[current]["heard"],
         "guard_peak": max(guard_prob_map.values()) if guard_prob_map else 0.0,
@@ -233,13 +267,13 @@ def main():
     def end_turn(action_name: str):
         nonlocal current, turn_count, winner
         nonlocal rajakar_pos, guard_pos, clues, guard_turns_taken, rajakar_visit_counts
-        nonlocal scan_fx_cells, scan_fx_until_ms, guard_prob_map
+        nonlocal scan_fx_cells, scan_fx_until_ms, guard_prob_map, guard_known_exits, guard_facing
 
         # 1) Check win conditions tied to the actor
         if current == "Rajakar":
             rajakar_visit_counts[rajakar_pos] = rajakar_visit_counts.get(rajakar_pos, 0) + 1
             # Immediate capture: adjacency to Guard ends the game instantly.
-            if manhattan(guard_pos, rajakar_pos) == 1:
+            if rules.manhattan(guard_pos, rajakar_pos) == 1:
                 winner = "Guard"
             # Rajakar wins if standing on EXIT and used ESCAPE action.
             elif action_name == "ESCAPE" and grid.get(*rajakar_pos) == EXIT:
@@ -247,37 +281,45 @@ def main():
         else:
             guard_turns_taken += 1
             # Guard wins if adjacent to Rajakar after Guard action.
-            if manhattan(guard_pos, rajakar_pos) == 1:
+            if rules.manhattan(guard_pos, rajakar_pos) == 1:
                 winner = "Guard"
 
         # 2) Increment turn count and draw rule
         turn_count += 1
-        if winner is None and turn_count >= MAX_TURNS:
+        if winner is None and turn_count >= s.MAX_TURNS:
             winner = "Draw"
 
         # 3) If game ended, don't switch turns
         if winner is not None:
             return
 
-        # 4) Update clues for the NEXT player (the one who will move now)
+        # 4) Discover exits through Guard's vision (fog-of-war)
+        if current == "Guard":
+            for exit_pos in exits:
+                if exit_pos not in guard_known_exits:
+                    # Guard discovers exit if it can see it (directional) or is standing on it
+                    if guard_pos == exit_pos or rules.in_directional_sight(grid, guard_pos, exit_pos, guard_facing, s.SIGHT_RANGE):
+                        guard_known_exits.append(exit_pos)
+
+        # 5) Update clues for the NEXT player (the one who will move now)
         if current == "Rajakar":
             # Guard is next: what can Guard sense about Rajakar?
-            seen = in_orthogonal_range(guard_pos, rajakar_pos, SIGHT_RANGE)
+            seen = rules.in_directional_sight(grid, guard_pos, rajakar_pos, guard_facing, s.SIGHT_RANGE)
             next_guard_turn_number = guard_turns_taken + 1
             power_ready = (
-                GUARD_POWER_COOLDOWN_TURNS > 0
-                and next_guard_turn_number >= GUARD_POWER_COOLDOWN_TURNS
-                and next_guard_turn_number % GUARD_POWER_COOLDOWN_TURNS == 0
+                s.GUARD_POWER_COOLDOWN_TURNS > 0
+                and next_guard_turn_number >= s.GUARD_POWER_COOLDOWN_TURNS
+                and next_guard_turn_number % s.GUARD_POWER_COOLDOWN_TURNS == 0
             )
-            if power_ready and in_power_scan(guard_pos, rajakar_pos, GUARD_POWER_SCAN_RADIUS):
+            if power_ready and rules.in_power_scan(guard_pos, rajakar_pos, s.GUARD_POWER_SCAN_RADIUS):
                 seen = True
             if power_ready:
-                scan_fx_cells = power_scan_cells(grid, guard_pos, GUARD_POWER_SCAN_RADIUS)
-                scan_fx_until_ms = pygame.time.get_ticks() + max(450, AI_TURN_DELAY_MS)
-            heard = heard_noise(guard_pos, rajakar_pos,
+                scan_fx_cells = rules.power_scan_cells(grid, guard_pos, s.GUARD_POWER_SCAN_RADIUS)
+                scan_fx_until_ms = pygame.time.get_ticks() + max(450, s.AI_TURN_DELAY_MS)
+            heard = rules.heard_noise(guard_pos, rajakar_pos,
                                 action_noise_radius(action_name))
             clues["Guard"] = {"seen": seen, "heard": heard}
-            guard_prob_map = update_guard_probability_map(
+            guard_prob_map = ai.update_guard_probability_map(
                 grid,
                 guard_prob_map,
                 guard_pos,
@@ -286,14 +328,15 @@ def main():
                 seen=seen,
                 seen_pos=rajakar_pos if seen else None,
                 power_used=power_ready,
-                sight_range=SIGHT_RANGE,
-                scan_radius=GUARD_POWER_SCAN_RADIUS,
+                sight_range=s.SIGHT_RANGE,
+                scan_radius=s.GUARD_POWER_SCAN_RADIUS,
             )
             current = "Guard"
         else:
             # Rajakar is next: what can Rajakar sense about Guard?
-            seen = manhattan(rajakar_pos, guard_pos) == 1
-            heard = heard_noise(rajakar_pos, guard_pos,
+            # Rajakar can only see Guard in plain sight (4 directions) with line-of-sight
+            seen = rules.in_straight_sight(grid, rajakar_pos, guard_pos, s.SIGHT_RANGE)
+            heard = rules.heard_noise(rajakar_pos, guard_pos,
                                 action_noise_radius(action_name))
             clues["Rajakar"] = {"seen": seen, "heard": heard}
             current = "Rajakar"
@@ -302,7 +345,7 @@ def main():
     last_ai_tick = pygame.time.get_ticks()
 
     while running:
-        dt = clock.tick(FPS) / 1000.0  # seconds since last frame
+        dt = clock.tick(s.FPS) / 1000.0  # seconds since last frame
 
         # --- Events ---
         for event in pygame.event.get():
@@ -330,8 +373,10 @@ def main():
                     rajakar_visit_counts = {rajakar_pos: 1}
                     scan_fx_cells = []
                     scan_fx_until_ms = 0
-                    guard_prob_map = init_guard_probability_map(grid, guard_pos)
+                    guard_prob_map = ai.init_guard_probability_map(grid, guard_pos)
                     last_guard_pos = None
+                    guard_known_exits = []
+                    guard_facing = (1, 0)
                     clues = {"Rajakar": {"seen": False, "heard": False},
                              "Guard": {"seen": False, "heard": False}}
                     continue
@@ -341,7 +386,7 @@ def main():
                     continue
 
                 # In AI autoplay mode, keep controls only for restart.
-                if AUTO_PLAY_AI:
+                if s.AUTO_PLAY_AI:
                     continue
 
                 acted = False
@@ -373,6 +418,7 @@ def main():
                         if ok:
                             last_guard_pos = guard_pos
                             guard_pos = new_pos
+                            guard_facing = (dr, dc)  # Update facing direction
                             acted = True
                             action_name = "MOVE"
 
@@ -393,22 +439,23 @@ def main():
                     end_turn(action_name)
 
         # --- AI turn ---
-        if winner is None and AUTO_PLAY_AI:
+        if winner is None and s.AUTO_PLAY_AI:
             now = pygame.time.get_ticks()
-            if now - last_ai_tick >= AI_TURN_DELAY_MS:
+            if now - last_ai_tick >= s.AI_TURN_DELAY_MS:
                 if current == "Guard":
                     if clues["Guard"]["seen"]:
-                        action_name, next_guard = choose_guard_minimax_action(
+                        action_name, next_guard = ai.choose_guard_minimax_action(
                             grid,
                             guard_pos,
                             rajakar_pos,
                             turn_count,
-                            MAX_TURNS,
-                            SIGHT_RANGE,
+                            s.MAX_TURNS,
+                            s.SIGHT_RANGE,
+                            guard_known_exits,
                             depth=3,
                         )
                     else:
-                        action_name, next_guard = choose_guard_probability_action(
+                        action_name, next_guard = ai.choose_guard_probability_action(
                             grid,
                             guard_pos,
                             guard_prob_map,
@@ -416,10 +463,13 @@ def main():
                         )
                     if action_name == "MOVE":
                         last_guard_pos = guard_pos
+                        dr = next_guard[0] - guard_pos[0]
+                        dc = next_guard[1] - guard_pos[1]
+                        guard_facing = (dr, dc)  # Update facing direction
                         guard_pos = next_guard
                 else:
                     raj_target = guard_pos if clues["Rajakar"]["seen"] else None
-                    action_name, next_raj = choose_rajakar_fuzzy_action(
+                    action_name, next_raj = ai.choose_rajakar_fuzzy_action(
                         grid,
                         rajakar_pos,
                         raj_target,
@@ -436,19 +486,21 @@ def main():
         # Update UI state to match game state
         state["current"] = current
         state["turn"] = turn_count
-        state["max_turns"] = MAX_TURNS
+        state["max_turns"] = s.MAX_TURNS
         state["seen"] = clues[current]["seen"]
         state["heard"] = clues[current]["heard"]
         state["guard_peak"] = max(guard_prob_map.values()) if guard_prob_map else 0.0
+        state["guard_exits_known"] = len(guard_known_exits)
+        state["exits_total"] = len(exits)
 
         # --- Draw ---
         active_scan_cells = scan_fx_cells if pygame.time.get_ticks() < scan_fx_until_ms else None
-        draw_layout(screen, grid, font_small, rajakar_pos, guard_pos, active_scan_cells)
+        draw_layout(screen, grid, font_small, rajakar_pos, guard_pos, guard_facing, active_scan_cells)
         draw_ui(screen, fonts, state)
 
         # Winner overlay
         if winner is not None:
-            overlay = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+            overlay = pygame.Surface((s.SCREEN_W, s.SCREEN_H), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 160))
             screen.blit(overlay, (0, 0))
 
@@ -460,9 +512,9 @@ def main():
                 "Press R to restart", True, (200, 200, 215))
 
             screen.blit(
-                big, (BOARD_PX // 2 - big.get_width() // 2, SCREEN_H // 2 - 60))
+                big, (s.BOARD_PX // 2 - big.get_width() // 2, s.SCREEN_H // 2 - 60))
             screen.blit(
-                small, (BOARD_PX // 2 - small.get_width() // 2, SCREEN_H // 2 + 6))
+                small, (s.BOARD_PX // 2 - small.get_width() // 2, s.SCREEN_H // 2 + 6))
 
         pygame.display.flip()
 
