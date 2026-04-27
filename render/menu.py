@@ -417,8 +417,24 @@ class MainMenu:
         x = int(self.width * 0.53)
         y = int(self.height * 0.31)
 
-        self._draw_card_image(surface, self.assets["bir_card"], pygame.Rect(x, y, card_w, card_h), (52, 78, 38), (142, 161, 68), "BIR SRESHTHA")
-        self._draw_card_image(surface, self.assets["raj_card"], pygame.Rect(x + card_w + gap, y, card_w, card_h), (71, 32, 22), (157, 68, 44), "RAJAKAR")
+        self._draw_card_image(
+            surface,
+            self.assets["bir_card"],
+            pygame.Rect(x, y, card_w, card_h),
+            (52, 78, 38),
+            (142, 161, 68),
+            "BIR SRESHTHA",
+            ("Guard your post.", "Stop the intruder."),
+        )
+        self._draw_card_image(
+            surface,
+            self.assets["raj_card"],
+            pygame.Rect(x + card_w + gap, y, card_w, card_h),
+            (71, 32, 22),
+            (157, 68, 44),
+            "RAJAKAR",
+            ("Move in silence.", "Use cover."),
+        )
 
     def _draw_card_image(
         self,
@@ -428,6 +444,7 @@ class MainMenu:
         fill: Color,
         border: Color,
         fallback_title: str,
+        description: Tuple[str, str],
     ) -> None:
         shadow = pygame.Surface((rect.w + 14, rect.h + 14), pygame.SRCALPHA)
         pygame.draw.rect(shadow, (0, 0, 0, 145), shadow.get_rect(), border_radius=8)
@@ -436,11 +453,36 @@ class MainMenu:
         if image is not None:
             fitted = blit_fit(surface, image, rect)
             pygame.draw.rect(surface, border, fitted, width=2, border_radius=5)
+            caption_rect = pygame.Rect(
+                fitted.x + int(fitted.w * 0.05),
+                fitted.y + int(fitted.h * 0.78),
+                int(fitted.w * 0.90),
+                int(fitted.h * 0.16),
+            )
+            caption_bg = pygame.Surface(caption_rect.size, pygame.SRCALPHA)
+            pygame.draw.rect(caption_bg, (*fill, 235), caption_bg.get_rect(), border_radius=7)
+            pygame.draw.rect(caption_bg, (*border, 150), caption_bg.get_rect(), width=2, border_radius=7)
+            surface.blit(caption_bg, caption_rect.topleft)
+
+            line_gap = max(20, int(caption_rect.h * 0.42))
+            first_y = caption_rect.centery - line_gap // 2
+            for index, line in enumerate(description):
+                draw_text_with_shadow(
+                    surface,
+                    self.fonts["small_bold"],
+                    line,
+                    (caption_rect.centerx, first_y + index * line_gap),
+                    (232, 220, 190),
+                    center=True,
+                    offset=(2, 2),
+                )
             return
 
         pygame.draw.rect(surface, fill, rect, border_radius=7)
         pygame.draw.rect(surface, border, rect, width=2, border_radius=7)
         draw_text_with_shadow(surface, self.fonts["small_bold"], fallback_title, (rect.centerx, rect.y + 36), border, center=True)
+        draw_text_with_shadow(surface, self.fonts["small_bold"], description[0], (rect.centerx, rect.bottom - 78), (232, 220, 190), center=True, offset=(2, 2))
+        draw_text_with_shadow(surface, self.fonts["small_bold"], description[1], (rect.centerx, rect.bottom - 48), (232, 220, 190), center=True, offset=(2, 2))
 
     def _draw_footer(self, surface: pygame.Surface) -> None:
         footer = "(c) 2024 RajakarDhor Team. All rights reserved."
