@@ -34,9 +34,11 @@ def _load_board_image() -> Optional[pygame.Surface]:
                     if crop_w > 0 and crop_h > 0 and (crop_w != img.get_width() or crop_h != img.get_height()):
                         crop_x = (img.get_width() - crop_w) // 2
                         crop_y = (img.get_height() - crop_h) // 2
-                        img = img.subsurface((crop_x, crop_y, crop_w, crop_h)).copy()
+                        img = img.subsurface(
+                            (crop_x, crop_y, crop_w, crop_h)).copy()
                     try:
-                        print(f"[board] loaded grid image: {p} size={img.get_size()}")
+                        print(
+                            f"[board] loaded grid image: {p} size={img.get_size()}")
                     except Exception:
                         print(f"[board] loaded grid image: {p}")
                     return img
@@ -60,6 +62,7 @@ def _load_board_image() -> Optional[pygame.Surface]:
 
 
 BOARD_BG_IMAGE = None
+GAMEPLAY_SPRITES = None
 
 
 MENU = "MENU"
@@ -104,14 +107,47 @@ def action_noise_radius(action_name: str) -> int:
     return 0
 
 
-def draw_player(screen, r, c, fill, edge, label, font_small, facing=None):
-    # tile center
-    cx = c * s.TILE_SIZE + s.TILE_SIZE // 2
-    cy = s.TOP_BAR_H + r * s.TILE_SIZE + s.TILE_SIZE // 2
+def _load_gameplay_sprite(sprite_name: str, target_size: int) -> Optional[pygame.Surface]:
+    base_dir = os.path.dirname(__file__)
+    path = os.path.join(base_dir, "assets", "gameplay", sprite_name)
+    if not os.path.exists(path):
+        return None
+
+    try:
+        img = pygame.image.load(path).convert_alpha()
+        crop_w = img.get_width() - (img.get_width() % s.GRID_SIZE)
+        crop_h = img.get_height() - (img.get_height() % s.GRID_SIZE)
+        if crop_w > 0 and crop_h > 0 and (crop_w != img.get_width() or crop_h != img.get_height()):
+            crop_x = (img.get_width() - crop_w) // 2
+            crop_y = (img.get_height() - crop_h) // 2
+            img = img.subsurface((crop_x, crop_y, crop_w, crop_h)).copy()
+        return pygame.transform.smoothscale(img, (target_size, target_size))
+    except pygame.error:
+        return None
+
+
+def _load_gameplay_sprites() -> dict[str, Optional[pygame.Surface]]:
+    block_size = max(1, s.TILE_SIZE - 8)
+    return {
+        "exit": _load_gameplay_sprite("exit_block.png", block_size),
+        "rajakar": _load_gameplay_sprite("rajakar_block.png", block_size),
+        "birsreshtha": _load_gameplay_sprite("birsreshtha_block.png", block_size),
+    }
+
+
+def draw_player(screen, r, c, fill, edge, label, font_small, facing=None, sprite: Optional[pygame.Surface] = None):
+    # Draw the gameplay block sprite if available; otherwise fall back to the
+    # older marker so the game remains playable even if an asset is missing.
+    center_x = c * s.TILE_SIZE + s.TILE_SIZE // 2
+    center_y = s.TOP_BAR_H + r * s.TILE_SIZE + s.TILE_SIZE // 2
+
+    if sprite is not None:
+        rect = sprite.get_rect(center=(center_x, center_y))
+        screen.blit(sprite, rect)
+        return
 
     radius = int(s.TILE_SIZE * 0.30)
 
-    # shadow (RGBA)
     shadow = pygame.Surface((s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
     pygame.draw.circle(
         shadow, s.PLAYER_SHADOW,
@@ -120,34 +156,27 @@ def draw_player(screen, r, c, fill, edge, label, font_small, facing=None):
     )
     screen.blit(shadow, (c * s.TILE_SIZE, s.TOP_BAR_H + r * s.TILE_SIZE))
 
-    # glow ring
     glow = pygame.Surface((s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
-    pygame.draw.circle(glow, s.PLAYER_GLOW, (s.TILE_SIZE //
-                       2, s.TILE_SIZE // 2), radius + 10)
+    pygame.draw.circle(glow, s.PLAYER_GLOW, (s.TILE_SIZE // 2, s.TILE_SIZE // 2), radius + 10)
     screen.blit(glow, (c * s.TILE_SIZE, s.TOP_BAR_H + r * s.TILE_SIZE))
 
-    # body
-    pygame.draw.circle(screen, fill, (cx, cy), radius)
-    pygame.draw.circle(screen, edge, (cx, cy), radius, width=3)
+    pygame.draw.circle(screen, fill, (center_x, center_y), radius)
+    pygame.draw.circle(screen, edge, (center_x, center_y), radius, width=3)
 
-    # Direction indicator (arrow) for facing direction
     if facing is not None:
         dr, dc = facing
         arrow_len = int(radius * 0.6)
-        arrow_end_x = cx + dc * arrow_len
-        arrow_end_y = cy + dr * arrow_len
-        # Draw arrow line
-        pygame.draw.line(screen, (10, 10, 12), (cx, cy),
-                         (arrow_end_x, arrow_end_y), 3)
-        # Draw arrow head (small triangle)
+        arrow_end_x = center_x + dc * arrow_len
+        arrow_end_y = center_y + dr * arrow_len
+        pygame.draw.line(screen, (10, 10, 12), (center_x, center_y), (arrow_end_x, arrow_end_y), 3)
         head_size = 5
-        if dr != 0:  # Vertical
+        if dr != 0:
             points = [
                 (arrow_end_x, arrow_end_y),
                 (arrow_end_x - head_size, arrow_end_y - dr * head_size),
                 (arrow_end_x + head_size, arrow_end_y - dr * head_size)
             ]
-        else:  # Horizontal
+        else:
             points = [
                 (arrow_end_x, arrow_end_y),
                 (arrow_end_x - dc * head_size, arrow_end_y - head_size),
@@ -155,9 +184,8 @@ def draw_player(screen, r, c, fill, edge, label, font_small, facing=None):
             ]
         pygame.draw.polygon(screen, (10, 10, 12), points)
 
-    # label (R / G)
     txt = font_small.render(label, True, (10, 10, 12))
-    screen.blit(txt, (cx - txt.get_width() // 2, cy - txt.get_height() // 2))
+    screen.blit(txt, (center_x - txt.get_width() // 2, center_y - txt.get_height() // 2))
 
 
 def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_facing, scan_cells=None):
@@ -176,12 +204,17 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
         BOARD_BG_IMAGE = _load_board_image()
     if BOARD_BG_IMAGE is not None:
         try:
-            scaled = pygame.transform.smoothscale(BOARD_BG_IMAGE, (s.BOARD_PX, s.BOARD_PX))
+            scaled = pygame.transform.smoothscale(
+                BOARD_BG_IMAGE, (s.BOARD_PX, s.BOARD_PX))
             screen.blit(scaled, board_rect.topleft)
         except Exception:
             pygame.draw.rect(screen, s.BOARD_BG, board_rect)
     else:
         pygame.draw.rect(screen, s.BOARD_BG, board_rect)
+
+    global GAMEPLAY_SPRITES
+    if GAMEPLAY_SPRITES is None:
+        GAMEPLAY_SPRITES = _load_gameplay_sprites()
 
     # UI panel
     panel_rect = pygame.Rect(s.BOARD_PX, 0, s.UI_PANEL_W, s.SCREEN_H)
@@ -217,26 +250,13 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
                     base = s.TILE_A if (r + c) % 2 == 0 else s.TILE_B
                     pygame.draw.rect(screen, base, rect)
 
-                if t == EXIT:
-                    # exit overlay
-                    pygame.draw.rect(screen, s.EXIT_FILL,
-                                     rect, border_radius=10)
-
-                    # glow (cheap but looks great)
-                    glow = pygame.Surface(
-                        (s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
-                    pygame.draw.rect(
-                        glow, s.EXIT_GLOW, glow.get_rect(), border_radius=10)
-                    screen.blit(glow, (x, y))
-
-                    pygame.draw.rect(screen, s.EXIT_EDGE, rect,
-                                     width=3, border_radius=10)
-
-                    # small "E" mark
-                    label = font_exit.render("E", True, (10, 10, 12))
-                    lx = x + (s.TILE_SIZE - label.get_width()) // 2
-                    ly = y + (s.TILE_SIZE - label.get_height()) // 2
-                    screen.blit(label, (lx, ly))
+                if t == EXIT and GAMEPLAY_SPRITES is not None:
+                    exit_sprite = GAMEPLAY_SPRITES.get("exit")
+                    if exit_sprite is not None:
+                        screen.blit(
+                            exit_sprite,
+                            exit_sprite.get_rect(center=rect.center),
+                        )
 
     # BirSreshtha power scan overlay (transparent blue cells)
     if scan_cells:
@@ -297,9 +317,27 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
     rr, rc = raj_pos
     gr, gc = birsreshtha_pos
 
-    draw_player(screen, rr, rc, s.RAJAKAR_FILL, s.RAJAKAR_EDGE, "R", font_exit)
-    draw_player(screen, gr, gc, s.BIRSRESHTHA_FILL,
-                s.BIRSRESHTHA_EDGE, "B", font_exit, facing=birsreshtha_facing)
+    draw_player(
+        screen,
+        rr,
+        rc,
+        s.RAJAKAR_FILL,
+        s.RAJAKAR_EDGE,
+        "R",
+        font_exit,
+        sprite=None if GAMEPLAY_SPRITES is None else GAMEPLAY_SPRITES.get("rajakar"),
+    )
+    draw_player(
+        screen,
+        gr,
+        gc,
+        s.BIRSRESHTHA_FILL,
+        s.BIRSRESHTHA_EDGE,
+        "B",
+        font_exit,
+        facing=birsreshtha_facing,
+        sprite=None if GAMEPLAY_SPRITES is None else GAMEPLAY_SPRITES.get("birsreshtha"),
+    )
 
 
 def draw_game_button(screen, rect, text, font, primary=False):
@@ -315,7 +353,8 @@ def draw_game_button(screen, rect, text, font, primary=False):
         text_color = (211, 195, 163)
 
     shadow = pygame.Surface((rect.w + 12, rect.h + 12), pygame.SRCALPHA)
-    pygame.draw.rect(shadow, (0, 0, 0, 150), shadow.get_rect(), border_radius=7)
+    pygame.draw.rect(shadow, (0, 0, 0, 150),
+                     shadow.get_rect(), border_radius=7)
     screen.blit(shadow, (rect.x + 4, rect.y + 6))
     pygame.draw.rect(screen, fill, rect, border_radius=7)
     pygame.draw.rect(screen, border, rect, width=2, border_radius=7)
@@ -339,7 +378,8 @@ def draw_center_overlay(screen, title, buttons, font_title, font_body):
     pygame.draw.rect(screen, (92, 82, 58), panel, width=2, border_radius=10)
 
     title_img = font_title.render(title, True, (245, 245, 255))
-    screen.blit(title_img, title_img.get_rect(center=(panel.centerx, panel.y + 54)))
+    screen.blit(title_img, title_img.get_rect(
+        center=(panel.centerx, panel.y + 54)))
 
     for text, rect, primary in buttons:
         draw_game_button(screen, rect, text, font_body, primary=primary)
