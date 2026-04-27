@@ -9,7 +9,14 @@ import core.rules as rules
 import core.ai as ai
 from core.grid import Grid, FLOOR, WALL, EXIT
 from core.spawn import spawn_match
+from render.menu import MainMenu
 from render.ui import draw_ui
+
+
+MENU = "MENU"
+HOW_TO_PLAY = "HOW_TO_PLAY"
+GAME = "GAME"
+GAME_OVER = "GAME_OVER"
 
 
 def setup_background_music():
@@ -238,6 +245,10 @@ def main():
     font_small = pygame.font.SysFont("Segoe UI", 14)
     fonts = (font_title, font_body, font_small)
 
+    menu = MainMenu(s.SCREEN_W, s.SCREEN_H)
+    screen_state = MENU
+    simulation_speed = menu.speed_multiplier
+
     # --- Create a test maze (you can change this anytime) ---
     ascii_map = [
         "..........",
@@ -251,33 +262,22 @@ def main():
         "..#...##..",
         "..........",
     ]
-    grid = Grid.from_ascii(ascii_map)
-
-    # Spawn players + exits using smart spawn system
-    spawn = spawn_match(grid, seed=7, exits_n=2)
-    rajakar_pos = spawn["rajakar"]
-    birsreshtha_pos = spawn["birsreshtha"]
-    exits = spawn["exits"]
-
-    # Clear any old exits and set the new ones
-    for (r, c) in grid.all_cells_of_type(EXIT):
-        grid.set(r, c, FLOOR)
-    for (r, c) in exits:
-        grid.set(r, c, EXIT)
 
     # Game state variables
+    grid = Grid.from_ascii(ascii_map)
+    rajakar_pos = (0, 0)
+    birsreshtha_pos = (0, 0)
+    exits = []
     current = "Rajakar"   # Rajakar starts
     turn_count = 0
     birsreshtha_turns_taken = 0
     winner = None         # "Rajakar" / "BirSreshtha" / "Draw" / None
-    rajakar_visit_counts = {rajakar_pos: 1}
+    rajakar_visit_counts = {}
     scan_fx_cells = []
     scan_fx_until_ms = 0
-    birsreshtha_prob_map = ai.init_birsreshtha_probability_map(
-        grid, birsreshtha_pos)
+    birsreshtha_prob_map = {}
     last_birsreshtha_pos = None
     birsreshtha_known_exits = []  # Fog-of-war: BirSreshtha discovers exits through vision
-    # Direction BirSreshtha is facing (dr, dc), starts facing down
     birsreshtha_facing = (1, 0)
 
     # What each player knows about the opponent on THEIR upcoming turn:
@@ -293,11 +293,62 @@ def main():
         "max_turns": s.MAX_TURNS,
         "seen": clues[current]["seen"],
         "heard": clues[current]["heard"],
-        "birsreshtha_peak": max(birsreshtha_prob_map.values()) if birsreshtha_prob_map else 0.0,
+        "birsreshtha_peak": 0.0,
     }
 
+    def actual_ai_delay_ms() -> int:
+        return max(60, int(s.AI_TURN_DELAY_MS / simulation_speed))
+
+    def reset_game(seed=None):
+        nonlocal grid, rajakar_pos, birsreshtha_pos, exits
+        nonlocal current, turn_count, birsreshtha_turns_taken, winner
+        nonlocal rajakar_visit_counts, scan_fx_cells, scan_fx_until_ms
+        nonlocal birsreshtha_prob_map, last_birsreshtha_pos
+        nonlocal birsreshtha_known_exits, birsreshtha_facing, clues
+
+        grid = Grid.from_ascii(ascii_map)
+
+        # Spawn players + exits using smart spawn system.
+        spawn = spawn_match(grid, seed=seed, exits_n=2)
+        rajakar_pos = spawn["rajakar"]
+        birsreshtha_pos = spawn["birsreshtha"]
+        exits = spawn["exits"]
+
+        # Clear any old exits and set the new ones.
+        for (r, c) in grid.all_cells_of_type(EXIT):
+            grid.set(r, c, FLOOR)
+        for (r, c) in exits:
+            grid.set(r, c, EXIT)
+
+        current = "Rajakar"
+        turn_count = 0
+        birsreshtha_turns_taken = 0
+        winner = None
+        rajakar_visit_counts = {rajakar_pos: 1}
+        scan_fx_cells = []
+        scan_fx_until_ms = 0
+        birsreshtha_prob_map = ai.init_birsreshtha_probability_map(
+            grid, birsreshtha_pos)
+        last_birsreshtha_pos = None
+        birsreshtha_known_exits = []
+        birsreshtha_facing = (1, 0)
+        clues = {"Rajakar": {"seen": False, "heard": False},
+                 "BirSreshtha": {"seen": False, "heard": False}}
+
+        state["current"] = current
+        state["turn"] = turn_count
+        state["max_turns"] = s.MAX_TURNS
+        state["seen"] = clues[current]["seen"]
+        state["heard"] = clues[current]["heard"]
+        state["birsreshtha_peak"] = max(
+            birsreshtha_prob_map.values()) if birsreshtha_prob_map else 0.0
+        state["birsreshtha_exits_known"] = len(birsreshtha_known_exits)
+        state["exits_total"] = len(exits)
+
+    reset_game(seed=7)
+
     def end_turn(action_name: str):
-        nonlocal current, turn_count, winner
+        nonlocal current, turn_count, winner, screen_state
         nonlocal rajakar_pos, birsreshtha_pos, clues, birsreshtha_turns_taken, rajakar_visit_counts
         nonlocal scan_fx_cells, scan_fx_until_ms, birsreshtha_prob_map, birsreshtha_known_exits, birsreshtha_facing
 
@@ -324,6 +375,7 @@ def main():
 
         # 3) If game ended, don't switch turns
         if winner is not None:
+            screen_state = GAME_OVER
             return
 
         # 4) Discover exits through BirSreshtha's vision (fog-of-war)
@@ -350,7 +402,7 @@ def main():
             if power_ready:
                 scan_fx_cells = rules.power_scan_cells(
                     grid, birsreshtha_pos, s.BIRSRESHTHA_POWER_SCAN_RADIUS)
-                scan_fx_until_ms = pygame.time.get_ticks() + max(450, s.AI_TURN_DELAY_MS)
+                scan_fx_until_ms = pygame.time.get_ticks() + max(450, actual_ai_delay_ms())
             heard = rules.heard_noise(birsreshtha_pos, rajakar_pos,
                                       action_noise_radius(action_name))
             clues["BirSreshtha"] = {"seen": seen, "heard": heard}
@@ -388,34 +440,41 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
 
+            if screen_state == MENU:
+                simulation_speed = menu.speed_multiplier
+                action = menu.handle_menu_event(event)
+                if action == "start":
+                    simulation_speed = menu.speed_multiplier
+                    reset_game()
+                    screen_state = GAME
+                    last_ai_tick = pygame.time.get_ticks()
+                elif action == "how":
+                    screen_state = HOW_TO_PLAY
+                elif action == "exit":
+                    running = False
+                continue
+
+            if screen_state == HOW_TO_PLAY:
+                action = menu.handle_how_to_play_event(event)
+                if action == "back":
+                    screen_state = MENU
+                continue
+
+            if screen_state == GAME_OVER:
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
+                    reset_game()
+                    screen_state = GAME
+                    last_ai_tick = pygame.time.get_ticks()
+                continue
+
+            if screen_state != GAME:
+                continue
+
             if event.type == pygame.KEYDOWN:
                 # --- Restart (full respawn) ---
                 if event.key == pygame.K_r:
-                    spawn = spawn_match(grid, exits_n=2)  # random new match
-                    rajakar_pos = spawn["rajakar"]
-                    birsreshtha_pos = spawn["birsreshtha"]
-                    exits = spawn["exits"]
-
-                    # reset exits on grid
-                    for (r, c) in grid.all_cells_of_type(EXIT):
-                        grid.set(r, c, FLOOR)
-                    for (r, c) in exits:
-                        grid.set(r, c, EXIT)
-
-                    current = "Rajakar"
-                    turn_count = 0
-                    birsreshtha_turns_taken = 0
-                    winner = None
-                    rajakar_visit_counts = {rajakar_pos: 1}
-                    scan_fx_cells = []
-                    scan_fx_until_ms = 0
-                    birsreshtha_prob_map = ai.init_birsreshtha_probability_map(
-                        grid, birsreshtha_pos)
-                    last_birsreshtha_pos = None
-                    birsreshtha_known_exits = []
-                    birsreshtha_facing = (1, 0)
-                    clues = {"Rajakar": {"seen": False, "heard": False},
-                             "BirSreshtha": {"seen": False, "heard": False}}
+                    reset_game()
+                    last_ai_tick = pygame.time.get_ticks()
                     continue
 
                 # If game ended, ignore other inputs
@@ -476,10 +535,24 @@ def main():
                 if acted and action_name is not None:
                     end_turn(action_name)
 
+        if not running:
+            break
+
+        if screen_state == MENU:
+            simulation_speed = menu.speed_multiplier
+            menu.draw_menu(screen)
+            pygame.display.flip()
+            continue
+
+        if screen_state == HOW_TO_PLAY:
+            menu.draw_how_to_play(screen)
+            pygame.display.flip()
+            continue
+
         # --- AI turn ---
-        if winner is None and s.AUTO_PLAY_AI:
+        if screen_state == GAME and winner is None and s.AUTO_PLAY_AI:
             now = pygame.time.get_ticks()
-            if now - last_ai_tick >= s.AI_TURN_DELAY_MS:
+            if now - last_ai_tick >= actual_ai_delay_ms():
                 if current == "BirSreshtha":
                     if clues["BirSreshtha"]["seen"]:
                         action_name, next_birsreshtha = ai.choose_birsreshtha_minimax_action(

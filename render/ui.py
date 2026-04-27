@@ -59,7 +59,7 @@ def draw_ui(screen, fonts, state):
     # --- Top bar text ---
     _draw_text(screen, font_title, "RajakarDhor", 18, 16, TEXT)
 
-    right_text = f"Turn: {state['turn']}/{state['max_turns']}  •  Now: {state['current']}"
+    right_text = f"Turn: {state['turn']}/{state['max_turns']}  |  Now: {state['current']}"
     img = font_body.render(right_text, True, MUTED)
     screen.blit(img, (BOARD_PX - img.get_width() - 16, 20))
 
