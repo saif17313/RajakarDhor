@@ -26,11 +26,11 @@ MAX_TURNS = 60   # turns = single actions (60 turns = 30 rounds)
 # --- AI controls ---
 AUTO_PLAY_AI = True
 AI_TURN_DELAY_MS = 350
-GUARD_MINIMAX_DEPTH = 3
+BIRSRESHTHA_MINIMAX_DEPTH = 3
 
-# Guard special scan power: usable every N guard turns.
-GUARD_POWER_COOLDOWN_TURNS = 4
-GUARD_POWER_SCAN_RADIUS = 2
+# BirSreshtha special scan power: usable every N BirSreshtha turns.
+BIRSRESHTHA_POWER_COOLDOWN_TURNS = 4
+BIRSRESHTHA_POWER_SCAN_RADIUS = 2
 
 # --- Colors (simple dark tactical theme) ---
 BG = (14, 14, 18)
@@ -66,8 +66,8 @@ EXIT_GLOW = (80, 220, 150, 90)  # RGBA for glow
 RAJAKAR_FILL = (240, 190, 70)
 RAJAKAR_EDGE = (255, 230, 140)
 
-GUARD_FILL = (90, 180, 255)
-GUARD_EDGE = (160, 220, 255)
+BIRSRESHTHA_FILL = (90, 180, 255)
+BIRSRESHTHA_EDGE = (160, 220, 255)
 
 PLAYER_SHADOW = (0, 0, 0, 110)   # RGBA
 PLAYER_GLOW = (255, 255, 255, 50)  # RGBA (subtle)

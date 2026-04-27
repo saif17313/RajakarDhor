@@ -81,7 +81,7 @@ def draw_player(screen, r, c, fill, edge, label, font_small, facing=None):
     screen.blit(txt, (cx - txt.get_width() // 2, cy - txt.get_height() // 2))
 
 
-def draw_layout(screen, grid, font_exit, raj_pos, guard_pos, guard_facing, scan_cells=None):
+def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_facing, scan_cells=None):
     # Background
     screen.fill(s.BG)
 
@@ -138,7 +138,7 @@ def draw_layout(screen, grid, font_exit, raj_pos, guard_pos, guard_facing, scan_
                     ly = y + (s.TILE_SIZE - label.get_height()) // 2
                     screen.blit(label, (lx, ly))
 
-    # Guard power scan overlay (transparent blue cells)
+    # BirSreshtha power scan overlay (transparent blue cells)
     if scan_cells:
         for r, c in scan_cells:
             x = c * s.TILE_SIZE
@@ -147,10 +147,10 @@ def draw_layout(screen, grid, font_exit, raj_pos, guard_pos, guard_facing, scan_
             overlay.fill((70, 170, 255, 80))
             screen.blit(overlay, (x, y))
     
-    # Guard vision cone (show what Guard can see)
-    if guard_facing != (0, 0):
-        gr, gc = guard_pos
-        dr, dc = guard_facing
+    # BirSreshtha vision cone (show what BirSreshtha can see)
+    if birsreshtha_facing != (0, 0):
+        gr, gc = birsreshtha_pos
+        dr, dc = birsreshtha_facing
         for step in range(1, s.SIGHT_RANGE + 1):
             vr, vc = gr + dr * step, gc + dc * step
             if not grid.in_bounds(vr, vc):
@@ -189,10 +189,10 @@ def draw_layout(screen, grid, font_exit, raj_pos, guard_pos, guard_facing, scan_
 
     # --- Draw players on top of tiles ---
     rr, rc = raj_pos
-    gr, gc = guard_pos
+    gr, gc = birsreshtha_pos
 
     draw_player(screen, rr, rc, s.RAJAKAR_FILL, s.RAJAKAR_EDGE, "R", font_exit)
-    draw_player(screen, gr, gc, s.GUARD_FILL, s.GUARD_EDGE, "G", font_exit, facing=guard_facing)
+    draw_player(screen, gr, gc, s.BIRSRESHTHA_FILL, s.BIRSRESHTHA_EDGE, "B", font_exit, facing=birsreshtha_facing)
 
 
 def main():
@@ -226,7 +226,7 @@ def main():
     # Spawn players + exits using smart spawn system
     spawn = spawn_match(grid, seed=7, exits_n=2)
     rajakar_pos = spawn["rajakar"]
-    guard_pos = spawn["guard"]
+    birsreshtha_pos = spawn["birsreshtha"]
     exits = spawn["exits"]
 
     # Clear any old exits and set the new ones
@@ -238,20 +238,20 @@ def main():
     # Game state variables
     current = "Rajakar"   # Rajakar starts
     turn_count = 0
-    guard_turns_taken = 0
-    winner = None         # "Rajakar" / "Guard" / "Draw" / None
+    birsreshtha_turns_taken = 0
+    winner = None         # "Rajakar" / "BirSreshtha" / "Draw" / None
     rajakar_visit_counts = {rajakar_pos: 1}
     scan_fx_cells = []
     scan_fx_until_ms = 0
-    guard_prob_map = ai.init_guard_probability_map(grid, guard_pos)
-    last_guard_pos = None
-    guard_known_exits = []  # Fog-of-war: Guard discovers exits through vision
-    guard_facing = (1, 0)  # Direction Guard is facing (dr, dc), starts facing down
+    birsreshtha_prob_map = ai.init_birsreshtha_probability_map(grid, birsreshtha_pos)
+    last_birsreshtha_pos = None
+    birsreshtha_known_exits = []  # Fog-of-war: BirSreshtha discovers exits through vision
+    birsreshtha_facing = (1, 0)  # Direction BirSreshtha is facing (dr, dc), starts facing down
 
     # What each player knows about the opponent on THEIR upcoming turn:
     clues = {
         "Rajakar": {"seen": False, "heard": False},
-        "Guard":   {"seen": False, "heard": False},
+        "BirSreshtha": {"seen": False, "heard": False},
     }
 
     # UI state (updated every frame)
@@ -261,28 +261,28 @@ def main():
         "max_turns": s.MAX_TURNS,
         "seen": clues[current]["seen"],
         "heard": clues[current]["heard"],
-        "guard_peak": max(guard_prob_map.values()) if guard_prob_map else 0.0,
+        "birsreshtha_peak": max(birsreshtha_prob_map.values()) if birsreshtha_prob_map else 0.0,
     }
 
     def end_turn(action_name: str):
         nonlocal current, turn_count, winner
-        nonlocal rajakar_pos, guard_pos, clues, guard_turns_taken, rajakar_visit_counts
-        nonlocal scan_fx_cells, scan_fx_until_ms, guard_prob_map, guard_known_exits, guard_facing
+        nonlocal rajakar_pos, birsreshtha_pos, clues, birsreshtha_turns_taken, rajakar_visit_counts
+        nonlocal scan_fx_cells, scan_fx_until_ms, birsreshtha_prob_map, birsreshtha_known_exits, birsreshtha_facing
 
         # 1) Check win conditions tied to the actor
         if current == "Rajakar":
             rajakar_visit_counts[rajakar_pos] = rajakar_visit_counts.get(rajakar_pos, 0) + 1
-            # Immediate capture: adjacency to Guard ends the game instantly.
-            if rules.manhattan(guard_pos, rajakar_pos) == 1:
-                winner = "Guard"
+            # Immediate capture: adjacency to BirSreshtha ends the game instantly.
+            if rules.manhattan(birsreshtha_pos, rajakar_pos) == 1:
+                winner = "BirSreshtha"
             # Rajakar wins if standing on EXIT and used ESCAPE action.
             elif action_name == "ESCAPE" and grid.get(*rajakar_pos) == EXIT:
                 winner = "Rajakar"
         else:
-            guard_turns_taken += 1
-            # Guard wins if adjacent to Rajakar after Guard action.
-            if rules.manhattan(guard_pos, rajakar_pos) == 1:
-                winner = "Guard"
+            birsreshtha_turns_taken += 1
+            # BirSreshtha wins if adjacent to Rajakar after BirSreshtha action.
+            if rules.manhattan(birsreshtha_pos, rajakar_pos) == 1:
+                winner = "BirSreshtha"
 
         # 2) Increment turn count and draw rule
         turn_count += 1
@@ -293,50 +293,50 @@ def main():
         if winner is not None:
             return
 
-        # 4) Discover exits through Guard's vision (fog-of-war)
-        if current == "Guard":
+        # 4) Discover exits through BirSreshtha's vision (fog-of-war)
+        if current == "BirSreshtha":
             for exit_pos in exits:
-                if exit_pos not in guard_known_exits:
-                    # Guard discovers exit if it can see it (directional) or is standing on it
-                    if guard_pos == exit_pos or rules.in_directional_sight(grid, guard_pos, exit_pos, guard_facing, s.SIGHT_RANGE):
-                        guard_known_exits.append(exit_pos)
+                if exit_pos not in birsreshtha_known_exits:
+                    # BirSreshtha discovers exit if it can see it (directional) or is standing on it
+                    if birsreshtha_pos == exit_pos or rules.in_directional_sight(grid, birsreshtha_pos, exit_pos, birsreshtha_facing, s.SIGHT_RANGE):
+                        birsreshtha_known_exits.append(exit_pos)
 
         # 5) Update clues for the NEXT player (the one who will move now)
         if current == "Rajakar":
-            # Guard is next: what can Guard sense about Rajakar?
-            seen = rules.in_directional_sight(grid, guard_pos, rajakar_pos, guard_facing, s.SIGHT_RANGE)
-            next_guard_turn_number = guard_turns_taken + 1
+            # BirSreshtha is next: what can BirSreshtha sense about Rajakar?
+            seen = rules.in_directional_sight(grid, birsreshtha_pos, rajakar_pos, birsreshtha_facing, s.SIGHT_RANGE)
+            next_birsreshtha_turn_number = birsreshtha_turns_taken + 1
             power_ready = (
-                s.GUARD_POWER_COOLDOWN_TURNS > 0
-                and next_guard_turn_number >= s.GUARD_POWER_COOLDOWN_TURNS
-                and next_guard_turn_number % s.GUARD_POWER_COOLDOWN_TURNS == 0
+                s.BIRSRESHTHA_POWER_COOLDOWN_TURNS > 0
+                and next_birsreshtha_turn_number >= s.BIRSRESHTHA_POWER_COOLDOWN_TURNS
+                and next_birsreshtha_turn_number % s.BIRSRESHTHA_POWER_COOLDOWN_TURNS == 0
             )
-            if power_ready and rules.in_power_scan(guard_pos, rajakar_pos, s.GUARD_POWER_SCAN_RADIUS):
+            if power_ready and rules.in_power_scan(birsreshtha_pos, rajakar_pos, s.BIRSRESHTHA_POWER_SCAN_RADIUS):
                 seen = True
             if power_ready:
-                scan_fx_cells = rules.power_scan_cells(grid, guard_pos, s.GUARD_POWER_SCAN_RADIUS)
+                scan_fx_cells = rules.power_scan_cells(grid, birsreshtha_pos, s.BIRSRESHTHA_POWER_SCAN_RADIUS)
                 scan_fx_until_ms = pygame.time.get_ticks() + max(450, s.AI_TURN_DELAY_MS)
-            heard = rules.heard_noise(guard_pos, rajakar_pos,
+            heard = rules.heard_noise(birsreshtha_pos, rajakar_pos,
                                 action_noise_radius(action_name))
-            clues["Guard"] = {"seen": seen, "heard": heard}
-            guard_prob_map = ai.update_guard_probability_map(
+            clues["BirSreshtha"] = {"seen": seen, "heard": heard}
+            birsreshtha_prob_map = ai.update_birsreshtha_probability_map(
                 grid,
-                guard_prob_map,
-                guard_pos,
+                birsreshtha_prob_map,
+                birsreshtha_pos,
                 heard=heard,
                 noise_radius=action_noise_radius(action_name),
                 seen=seen,
                 seen_pos=rajakar_pos if seen else None,
                 power_used=power_ready,
                 sight_range=s.SIGHT_RANGE,
-                scan_radius=s.GUARD_POWER_SCAN_RADIUS,
+                scan_radius=s.BIRSRESHTHA_POWER_SCAN_RADIUS,
             )
-            current = "Guard"
+            current = "BirSreshtha"
         else:
-            # Rajakar is next: what can Rajakar sense about Guard?
-            # Rajakar can only see Guard in plain sight (4 directions) with line-of-sight
-            seen = rules.in_straight_sight(grid, rajakar_pos, guard_pos, s.SIGHT_RANGE)
-            heard = rules.heard_noise(rajakar_pos, guard_pos,
+            # Rajakar is next: what can Rajakar sense about BirSreshtha?
+            # Rajakar can only see BirSreshtha in plain sight (4 directions) with line-of-sight
+            seen = rules.in_straight_sight(grid, rajakar_pos, birsreshtha_pos, s.SIGHT_RANGE)
+            heard = rules.heard_noise(rajakar_pos, birsreshtha_pos,
                                 action_noise_radius(action_name))
             clues["Rajakar"] = {"seen": seen, "heard": heard}
             current = "Rajakar"
@@ -357,7 +357,7 @@ def main():
                 if event.key == pygame.K_r:
                     spawn = spawn_match(grid, exits_n=2)  # random new match
                     rajakar_pos = spawn["rajakar"]
-                    guard_pos = spawn["guard"]
+                    birsreshtha_pos = spawn["birsreshtha"]
                     exits = spawn["exits"]
 
                     # reset exits on grid
@@ -368,17 +368,17 @@ def main():
 
                     current = "Rajakar"
                     turn_count = 0
-                    guard_turns_taken = 0
+                    birsreshtha_turns_taken = 0
                     winner = None
                     rajakar_visit_counts = {rajakar_pos: 1}
                     scan_fx_cells = []
                     scan_fx_until_ms = 0
-                    guard_prob_map = ai.init_guard_probability_map(grid, guard_pos)
-                    last_guard_pos = None
-                    guard_known_exits = []
-                    guard_facing = (1, 0)
+                    birsreshtha_prob_map = ai.init_birsreshtha_probability_map(grid, birsreshtha_pos)
+                    last_birsreshtha_pos = None
+                    birsreshtha_known_exits = []
+                    birsreshtha_facing = (1, 0)
                     clues = {"Rajakar": {"seen": False, "heard": False},
-                             "Guard": {"seen": False, "heard": False}}
+                             "BirSreshtha": {"seen": False, "heard": False}}
                     continue
 
                 # If game ended, ignore other inputs
@@ -414,11 +414,11 @@ def main():
                             acted = True
                             action_name = "MOVE"
                     else:
-                        new_pos, ok = try_move(grid, guard_pos, dr, dc)
+                        new_pos, ok = try_move(grid, birsreshtha_pos, dr, dc)
                         if ok:
-                            last_guard_pos = guard_pos
-                            guard_pos = new_pos
-                            guard_facing = (dr, dc)  # Update facing direction
+                            last_birsreshtha_pos = birsreshtha_pos
+                            birsreshtha_pos = new_pos
+                            birsreshtha_facing = (dr, dc)  # Update facing direction
                             acted = True
                             action_name = "MOVE"
 
@@ -442,33 +442,33 @@ def main():
         if winner is None and s.AUTO_PLAY_AI:
             now = pygame.time.get_ticks()
             if now - last_ai_tick >= s.AI_TURN_DELAY_MS:
-                if current == "Guard":
-                    if clues["Guard"]["seen"]:
-                        action_name, next_guard = ai.choose_guard_minimax_action(
+                if current == "BirSreshtha":
+                    if clues["BirSreshtha"]["seen"]:
+                        action_name, next_birsreshtha = ai.choose_birsreshtha_minimax_action(
                             grid,
-                            guard_pos,
+                            birsreshtha_pos,
                             rajakar_pos,
                             turn_count,
                             s.MAX_TURNS,
                             s.SIGHT_RANGE,
-                            guard_known_exits,
-                            depth=3,
+                            birsreshtha_known_exits,
+                            depth=s.BIRSRESHTHA_MINIMAX_DEPTH,
                         )
                     else:
-                        action_name, next_guard = ai.choose_guard_probability_action(
+                        action_name, next_birsreshtha = ai.choose_birsreshtha_probability_action(
                             grid,
-                            guard_pos,
-                            guard_prob_map,
-                            last_guard_pos=last_guard_pos,
+                            birsreshtha_pos,
+                            birsreshtha_prob_map,
+                            last_birsreshtha_pos=last_birsreshtha_pos,
                         )
                     if action_name == "MOVE":
-                        last_guard_pos = guard_pos
-                        dr = next_guard[0] - guard_pos[0]
-                        dc = next_guard[1] - guard_pos[1]
-                        guard_facing = (dr, dc)  # Update facing direction
-                        guard_pos = next_guard
+                        last_birsreshtha_pos = birsreshtha_pos
+                        dr = next_birsreshtha[0] - birsreshtha_pos[0]
+                        dc = next_birsreshtha[1] - birsreshtha_pos[1]
+                        birsreshtha_facing = (dr, dc)  # Update facing direction
+                        birsreshtha_pos = next_birsreshtha
                 else:
-                    raj_target = guard_pos if clues["Rajakar"]["seen"] else None
+                    raj_target = birsreshtha_pos if clues["Rajakar"]["seen"] else None
                     action_name, next_raj = ai.choose_rajakar_fuzzy_action(
                         grid,
                         rajakar_pos,
@@ -489,13 +489,13 @@ def main():
         state["max_turns"] = s.MAX_TURNS
         state["seen"] = clues[current]["seen"]
         state["heard"] = clues[current]["heard"]
-        state["guard_peak"] = max(guard_prob_map.values()) if guard_prob_map else 0.0
-        state["guard_exits_known"] = len(guard_known_exits)
+        state["birsreshtha_peak"] = max(birsreshtha_prob_map.values()) if birsreshtha_prob_map else 0.0
+        state["birsreshtha_exits_known"] = len(birsreshtha_known_exits)
         state["exits_total"] = len(exits)
 
         # --- Draw ---
         active_scan_cells = scan_fx_cells if pygame.time.get_ticks() < scan_fx_until_ms else None
-        draw_layout(screen, grid, font_small, rajakar_pos, guard_pos, guard_facing, active_scan_cells)
+        draw_layout(screen, grid, font_small, rajakar_pos, birsreshtha_pos, birsreshtha_facing, active_scan_cells)
         draw_ui(screen, fonts, state)
 
         # Winner overlay
@@ -505,7 +505,7 @@ def main():
             screen.blit(overlay, (0, 0))
 
             msg = f"{winner} WINS!" if winner in (
-                "Rajakar", "Guard") else "DRAW!"
+                "Rajakar", "BirSreshtha") else "DRAW!"
             big = pygame.font.SysFont("Segoe UI", 44, bold=True).render(
                 msg, True, (245, 245, 255))
             small = pygame.font.SysFont("Segoe UI", 18).render(

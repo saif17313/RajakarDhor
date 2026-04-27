@@ -28,12 +28,12 @@ def _normalize(prob_map: ProbMap) -> ProbMap:
     return {k: v / total for k, v in prob_map.items()}
 
 
-def init_guard_probability_map(grid: Grid, guard_pos: Pos) -> ProbMap:
-    """Initialize a uniform belief over all walkable cells except Guard's cell."""
+def init_birsreshtha_probability_map(grid: Grid, birsreshtha_pos: Pos) -> ProbMap:
+    """Initialize a uniform belief over all walkable cells except BirSreshtha's cell."""
     cells = _walkable_cells(grid)
-    candidates = [p for p in cells if p != guard_pos]
+    candidates = [p for p in cells if p != birsreshtha_pos]
     if not candidates:
-        return {guard_pos: 1.0}
+        return {birsreshtha_pos: 1.0}
     w = 1.0 / len(candidates)
     return {p: w for p in candidates}
 
@@ -59,10 +59,10 @@ def _apply_mask(prob_map: ProbMap, keep_fn: Callable[[Pos], bool]) -> ProbMap:
     return _normalize(out)
 
 
-def update_guard_probability_map(
+def update_birsreshtha_probability_map(
     grid: Grid,
     prior: ProbMap,
-    guard_pos: Pos,
+    birsreshtha_pos: Pos,
     heard: bool,
     noise_radius: int,
     seen: bool,
@@ -71,7 +71,7 @@ def update_guard_probability_map(
     sight_range: int,
     scan_radius: int,
 ) -> ProbMap:
-    """Update guard belief with motion prediction and current turn observations."""
+    """Update BirSreshtha belief with motion prediction and current turn observations."""
     if seen and seen_pos is not None:
         return {seen_pos: 1.0}
 
@@ -80,14 +80,14 @@ def update_guard_probability_map(
     # Not seen in always-on orthogonal vision -> remove those cells.
     belief = _apply_mask(
         belief,
-        lambda p: not in_orthogonal_range(guard_pos, p, sight_range),
+        lambda p: not in_orthogonal_range(birsreshtha_pos, p, sight_range),
     )
 
     # If scanner was used and still unseen, remove scanner rays too.
     if power_used:
         belief = _apply_mask(
             belief,
-            lambda p: not in_power_scan(guard_pos, p, scan_radius),
+            lambda p: not in_power_scan(birsreshtha_pos, p, scan_radius),
         )
 
     # Apply noise evidence from Rajakar's last action.
@@ -95,35 +95,35 @@ def update_guard_probability_map(
         if heard:
             belief = _apply_mask(
                 belief,
-                lambda p: manhattan(guard_pos, p) <= noise_radius,
+                lambda p: manhattan(birsreshtha_pos, p) <= noise_radius,
             )
         else:
             belief = _apply_mask(
                 belief,
-                lambda p: manhattan(guard_pos, p) > noise_radius,
+                lambda p: manhattan(birsreshtha_pos, p) > noise_radius,
             )
 
     # Recovery fallback if evidence becomes over-constrained.
     if sum(belief.values()) <= 0:
-        return init_guard_probability_map(grid, guard_pos)
+        return init_birsreshtha_probability_map(grid, birsreshtha_pos)
     return belief
 
 
-def choose_guard_probability_action(
+def choose_birsreshtha_probability_action(
     grid: Grid,
-    guard_pos: Pos,
+    birsreshtha_pos: Pos,
     prob_map: ProbMap,
-    last_guard_pos: Optional[Pos] = None,
+    last_birsreshtha_pos: Optional[Pos] = None,
 ) -> Tuple[Action, Pos]:
     """Move toward highest-likelihood Rajakar region while reducing back-and-forth loops."""
-    legal_moves = _legal_moves(grid, guard_pos)
+    legal_moves = _legal_moves(grid, birsreshtha_pos)
     if not legal_moves:
-        return "WAIT", guard_pos
+        return "WAIT", birsreshtha_pos
 
     best_prob = max(prob_map.values()) if prob_map else 0.0
     hot_cells = [p for p, v in prob_map.items() if v >= best_prob - 1e-12]
     if not hot_cells:
-        hot_cells = [guard_pos]
+        hot_cells = [birsreshtha_pos]
 
     def local_density(pos: Pos) -> float:
         r, c = pos
@@ -140,7 +140,7 @@ def choose_guard_probability_action(
         score += prob_map.get(m, 0.0) * 12.0
         score += local_density(m) * 8.0
         score -= min_d * 3.0
-        if last_guard_pos is not None and m == last_guard_pos:
+        if last_birsreshtha_pos is not None and m == last_birsreshtha_pos:
             score -= 2.2
         if score > best_score:
             best_score = score
@@ -170,71 +170,71 @@ def _nearest_exit_distance(grid: Grid, pos: Pos, known_exits: List[Pos] = None) 
     return min(manhattan(pos, ex) for ex in exits)
 
 
-def _guard_heuristic(
+def _birsreshtha_heuristic(
     grid: Grid,
-    guard_pos: Pos,
+    birsreshtha_pos: Pos,
     raj_pos: Optional[Pos],
     sight_range: int,
     known_exits: List[Pos] = None,
 ) -> float:
     if raj_pos is None:
-        return _guard_unknown_heuristic(grid, guard_pos, known_exits)
+        return _birsreshtha_unknown_heuristic(grid, birsreshtha_pos, known_exits)
 
-    dist_gr = manhattan(guard_pos, raj_pos)
+    dist_gr = manhattan(birsreshtha_pos, raj_pos)
     dist_re = _nearest_exit_distance(grid, raj_pos, known_exits)
 
     score = 0.0
     score += max(0, 12 - dist_gr) * 8.0
     
-    # Only penalize Rajakar near exits if Guard knows about exits
+    # Only penalize Rajakar near exits if BirSreshtha knows about exits
     if known_exits:
         score -= max(0, 10 - dist_re) * 5.0
 
     return score
 
 
-def _guard_unknown_heuristic(grid: Grid, guard_pos: Pos, known_exits: List[Pos] = None) -> float:
+def _birsreshtha_unknown_heuristic(grid: Grid, birsreshtha_pos: Pos, known_exits: List[Pos] = None) -> float:
     # When Rajakar is unseen, patrol toward known exits to deny escape zones.
     score = 0.0
     
-    # Only patrol toward exits if Guard has discovered any
+    # Only patrol toward exits if BirSreshtha has discovered any
     if known_exits:
-        dist_ge = _nearest_exit_distance(grid, guard_pos, known_exits)
+        dist_ge = _nearest_exit_distance(grid, birsreshtha_pos, known_exits)
         score += max(0, 10 - dist_ge) * 5.0
     
     # Prefer positions with more movement options (central locations)
-    score += len(_legal_moves(grid, guard_pos)) * 0.2
+    score += len(_legal_moves(grid, birsreshtha_pos)) * 0.2
     return score
 
 
 def _apply_action(
     grid: Grid,
     actor: str,
-    guard_pos: Pos,
+    birsreshtha_pos: Pos,
     raj_pos: Pos,
     action: Action,
 ) -> Tuple[Pos, Pos]:
-    if actor == "Guard":
+    if actor == "BirSreshtha":
         if action.startswith("MOVE:"):
             dr, dc = map(int, action.split(":", 1)[1].split(","))
-            nr, nc = guard_pos[0] + dr, guard_pos[1] + dc
+            nr, nc = birsreshtha_pos[0] + dr, birsreshtha_pos[1] + dc
             if grid.is_walkable(nr, nc):
                 return (nr, nc), raj_pos
-        return guard_pos, raj_pos
+        return birsreshtha_pos, raj_pos
 
     if action.startswith("MOVE:"):
         dr, dc = map(int, action.split(":", 1)[1].split(","))
         nr, nc = raj_pos[0] + dr, raj_pos[1] + dc
         if grid.is_walkable(nr, nc):
-            return guard_pos, (nr, nc)
-    return guard_pos, raj_pos
+                return birsreshtha_pos, (nr, nc)
+    return birsreshtha_pos, raj_pos
 
 
-def _guard_actions(grid: Grid, guard_pos: Pos) -> List[Action]:
+def _birsreshtha_actions(grid: Grid, birsreshtha_pos: Pos) -> List[Action]:
     acts: List[Action] = []
-    for nr, nc in _legal_moves(grid, guard_pos):
-        dr = nr - guard_pos[0]
-        dc = nc - guard_pos[1]
+    for nr, nc in _legal_moves(grid, birsreshtha_pos):
+        dr = nr - birsreshtha_pos[0]
+        dc = nc - birsreshtha_pos[1]
         acts.append(f"MOVE:{dr},{dc}")
     return acts
 
@@ -255,13 +255,13 @@ def _terminal_after_action(
     grid: Grid,
     actor: str,
     action: Action,
-    guard_pos: Pos,
+    birsreshtha_pos: Pos,
     raj_pos: Pos,
     turn_count: int,
     max_turns: int,
 ) -> Optional[str]:
-    if manhattan(guard_pos, raj_pos) == 1:
-        return "Guard"
+    if manhattan(birsreshtha_pos, raj_pos) == 1:
+        return "BirSreshtha"
     if actor == "Rajakar" and action == "ESCAPE" and grid.get(*raj_pos) == EXIT:
         return "Rajakar"
     if turn_count >= max_turns:
@@ -269,9 +269,9 @@ def _terminal_after_action(
     return None
 
 
-def choose_guard_minimax_action(
+def choose_birsreshtha_minimax_action(
     grid: Grid,
-    guard_pos: Pos,
+    birsreshtha_pos: Pos,
     raj_pos: Optional[Pos],
     turn_count: int,
     max_turns: int,
@@ -279,25 +279,24 @@ def choose_guard_minimax_action(
     known_exits: List[Pos] = None,
     depth: int = 3,
 ) -> Tuple[Action, Pos]:
-    """Return the Guard action chosen by depth-limited minimax with alpha-beta pruning.
+    """Return the BirSreshtha action chosen by depth-limited minimax with alpha-beta pruning.
     
     Args:
-        known_exits: List of exit positions the Guard has discovered (fog-of-war).
+        known_exits: List of exit positions the BirSreshtha has discovered (fog-of-war).
     """
-
-    legal_moves = _legal_moves(grid, guard_pos)
+    legal_moves = _legal_moves(grid, birsreshtha_pos)
 
     if raj_pos is None:
         if legal_moves:
             best_move = legal_moves[0]
-            best_value = _guard_unknown_heuristic(grid, best_move, known_exits)
+            best_value = _birsreshtha_unknown_heuristic(grid, best_move, known_exits)
             for m in legal_moves[1:]:
-                value = _guard_unknown_heuristic(grid, m, known_exits)
+                value = _birsreshtha_unknown_heuristic(grid, m, known_exits)
                 if value > best_value:
                     best_value = value
                     best_move = m
             return "MOVE", best_move
-        return "WAIT", guard_pos
+        return "WAIT", birsreshtha_pos
 
     def minimax(
         gpos: Pos,
@@ -309,23 +308,23 @@ def choose_guard_minimax_action(
         beta: float,
     ) -> float:
         if ply == 0:
-            return _guard_heuristic(grid, gpos, rpos, sight_range, known_exits)
+            return _birsreshtha_heuristic(grid, gpos, rpos, sight_range, known_exits)
 
-        actions = _guard_actions(grid, gpos) if actor == "Guard" else _raj_actions(grid, rpos)
+        actions = _birsreshtha_actions(grid, gpos) if actor == "BirSreshtha" else _raj_actions(grid, rpos)
         if not actions:
-            return _guard_heuristic(grid, gpos, rpos, sight_range)
+            return _birsreshtha_heuristic(grid, gpos, rpos, sight_range, known_exits)
 
-        if actor == "Guard":
+        if actor == "BirSreshtha":
             best = -1e12
             for act in actions:
                 ng, nr = _apply_action(grid, actor, gpos, rpos, act)
                 winner = _terminal_after_action(grid, actor, act, ng, nr, turn + 1, max_turns)
-                if winner == "Guard":
+                if winner == "BirSreshtha":
                     value = 10000.0 + ply
                 elif winner == "Rajakar":
                     value = -10000.0 - ply
                 elif winner == "Draw":
-                    value = _guard_heuristic(grid, ng, nr, sight_range, known_exits)
+                    value = _birsreshtha_heuristic(grid, ng, nr, sight_range, known_exits)
                 else:
                     value = minimax(ng, nr, "Rajakar", turn + 1, ply - 1, alpha, beta)
 
@@ -341,14 +340,14 @@ def choose_guard_minimax_action(
         for act in actions:
             ng, nr = _apply_action(grid, actor, gpos, rpos, act)
             winner = _terminal_after_action(grid, actor, act, ng, nr, turn + 1, max_turns)
-            if winner == "Guard":
+            if winner == "BirSreshtha":
                 value = 10000.0 + ply
             elif winner == "Rajakar":
                 value = -10000.0 - ply
             elif winner == "Draw":
-                value = _guard_heuristic(grid, ng, nr, sight_range, known_exits)
+                value = _birsreshtha_heuristic(grid, ng, nr, sight_range, known_exits)
             else:
-                value = minimax(ng, nr, "Guard", turn + 1, ply - 1, alpha, beta)
+                value = minimax(ng, nr, "BirSreshtha", turn + 1, ply - 1, alpha, beta)
 
             if value < best:
                 best = value
@@ -361,16 +360,16 @@ def choose_guard_minimax_action(
     best_action = "WAIT"
     best_value = -1e12
 
-    for act in _guard_actions(grid, guard_pos):
-        ng, nr = _apply_action(grid, "Guard", guard_pos, raj_pos, act)
-        winner = _terminal_after_action(grid, "Guard", act, ng, nr, turn_count + 1, max_turns)
+    for act in _birsreshtha_actions(grid, birsreshtha_pos):
+        ng, nr = _apply_action(grid, "BirSreshtha", birsreshtha_pos, raj_pos, act)
+        winner = _terminal_after_action(grid, "BirSreshtha", act, ng, nr, turn_count + 1, max_turns)
 
-        if winner == "Guard":
+        if winner == "BirSreshtha":
             value = 10000.0
         elif winner == "Rajakar":
             value = -10000.0
         elif winner == "Draw":
-            value = _guard_heuristic(grid, ng, nr, sight_range, known_exits)
+            value = _birsreshtha_heuristic(grid, ng, nr, sight_range, known_exits)
         else:
             value = minimax(ng, nr, "Rajakar", turn_count + 1, depth - 1, -1e12, 1e12)
 
@@ -380,13 +379,13 @@ def choose_guard_minimax_action(
 
     if best_action.startswith("MOVE:"):
         dr, dc = map(int, best_action.split(":", 1)[1].split(","))
-        return "MOVE", (guard_pos[0] + dr, guard_pos[1] + dc)
+        return "MOVE", (birsreshtha_pos[0] + dr, birsreshtha_pos[1] + dc)
 
     # Avoid idling on EXIT when movement is possible.
-    if grid.get(*guard_pos) == EXIT and legal_moves:
+    if grid.get(*birsreshtha_pos) == EXIT and legal_moves:
         return "MOVE", legal_moves[0]
 
-    return "WAIT", guard_pos
+    return "WAIT", birsreshtha_pos
 
 
 def _clamp(v: float) -> float:
@@ -400,7 +399,7 @@ def _clamp(v: float) -> float:
 def choose_rajakar_fuzzy_action(
     grid: Grid,
     raj_pos: Pos,
-    guard_pos: Optional[Pos],
+    birsreshtha_pos: Optional[Pos],
     clues: Dict[str, bool],
     visit_counts: Optional[Dict[Pos, int]] = None,
 ) -> Tuple[Action, Pos]:
@@ -415,12 +414,12 @@ def choose_rajakar_fuzzy_action(
     if grid.get(*raj_pos) == EXIT:
         candidates.append(("ESCAPE", raj_pos))
 
-    curr_guard_dist = manhattan(raj_pos, guard_pos) if guard_pos is not None else None
+    curr_birsreshtha_dist = manhattan(raj_pos, birsreshtha_pos) if birsreshtha_pos is not None else None
     seen_bonus = 1.0 if clues.get("seen", False) else 0.0
     heard_bonus = 0.6 if clues.get("heard", False) else 0.0
     
-    # Guard is only detected if Rajakar can actually see it (plain sight)
-    guard_detected = clues.get("seen", False)
+    # BirSreshtha is only detected if Rajakar can actually see it (plain sight)
+    birsreshtha_detected = clues.get("seen", False)
     
     compelled_revisit = bool(moves) and all(visit_counts.get(p, 0) > 0 for p in moves)
 
@@ -428,15 +427,15 @@ def choose_rajakar_fuzzy_action(
     best_score = -1e12
 
     for action, next_pos in candidates:
-        guard_dist = manhattan(next_pos, guard_pos) if guard_pos is not None else None
-        near_guard = _clamp((4.0 - guard_dist) / 4.0) if guard_dist is not None else 0.0
-        far_guard = _clamp((guard_dist - 2.0) / 6.0) if guard_dist is not None else 0.0
+        birsreshtha_dist = manhattan(next_pos, birsreshtha_pos) if birsreshtha_pos is not None else None
+        near_birsreshtha = _clamp((4.0 - birsreshtha_dist) / 4.0) if birsreshtha_dist is not None else 0.0
+        far_birsreshtha = _clamp((birsreshtha_dist - 2.0) / 6.0) if birsreshtha_dist is not None else 0.0
 
-        danger = max(near_guard, seen_bonus, heard_bonus)
-        moving_away_from_guard = (
-            guard_dist is not None
-            and curr_guard_dist is not None
-            and guard_dist > curr_guard_dist
+        danger = max(near_birsreshtha, seen_bonus, heard_bonus)
+        moving_away_from_birsreshtha = (
+            birsreshtha_dist is not None
+            and curr_birsreshtha_dist is not None
+            and birsreshtha_dist > curr_birsreshtha_dist
         )
 
         score = 0.0
@@ -446,13 +445,13 @@ def choose_rajakar_fuzzy_action(
             score += 10.0 + (1.0 - danger)
 
         if action == "MOVE":
-            # Rule: If Guard is visible in plain sight, strongly prioritize evasion
-            if guard_detected and moving_away_from_guard:
-                score += 6.0  # Strong evasion bonus when Guard is sighted
+            # Rule: If BirSreshtha is visible in plain sight, strongly prioritize evasion
+            if birsreshtha_detected and moving_away_from_birsreshtha:
+                score += 6.0  # Strong evasion bonus when BirSreshtha is sighted
             
-            # Rule: If danger is high, prioritize creating distance from guard.
-            if moving_away_from_guard:
-                score += danger * 4.5 + far_guard * 2.0
+            # Rule: If danger is high, prioritize creating distance from BirSreshtha.
+            if moving_away_from_birsreshtha:
+                score += danger * 4.5 + far_birsreshtha * 2.0
             else:
                 score -= danger * 2.5
 
@@ -469,8 +468,8 @@ def choose_rajakar_fuzzy_action(
                     revisit_penalty *= 0.35
                 score -= revisit_penalty
 
-            # Strong penalty for standing adjacent to the guard.
-            if guard_dist is not None and guard_dist <= 1:
+            # Strong penalty for standing adjacent to BirSreshtha.
+            if birsreshtha_dist is not None and birsreshtha_dist <= 1:
                 score -= 8.0
 
         if action == "WAIT":

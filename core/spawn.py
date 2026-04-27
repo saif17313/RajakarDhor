@@ -16,9 +16,9 @@ def spawn_match(
     grid: Grid,
     seed: Optional[int] = None,
     exits_n: int = 2,
-    min_rg: int = 4,            # guard-thief distance
+    min_rg: int = 4,            # BirSreshtha-Rajakar distance
     min_thief_exit: int = 4,    # thief to each exit
-    min_guard_exit: int = 8,    # guard to each exit (your constraint)
+    min_birsreshtha_exit: int = 8,    # BirSreshtha to each exit (your constraint)
     min_exit_exit: int = 8,     # exit-exit distance
     attempts: int = 8000,
 ) -> Dict[str, object]:
@@ -26,7 +26,7 @@ def spawn_match(
     Returns:
       {
         "rajakar": (r,c),
-        "guard": (r,c),
+                "birsreshtha": (r,c),
         "exits": [(r,c), (r,c)]
       }
     Tries hard with strict constraints. Raises ValueError if impossible.
@@ -43,22 +43,22 @@ def spawn_match(
         raise ValueError("Maze has too few FLOOR cells to spawn fairly.")
 
     for _ in range(attempts):
-        # --- pick Rajakar + Guard ---
+        # --- pick Rajakar + BirSreshtha ---
         raj = rng.choice(floors)
-        guard = rng.choice(floors)
-        if guard == raj:
+        birsreshtha = rng.choice(floors)
+        if birsreshtha == raj:
             continue
-        if manhattan(guard, raj) < min_rg:
+        if manhattan(birsreshtha, raj) < min_rg:
             continue
 
         # --- pick exits ---
         # candidates must be FLOOR and not on players
-        candidates = [p for p in floors if p != raj and p != guard]
+        candidates = [p for p in floors if p != raj and p != birsreshtha]
 
-        # filter by thief-exit and guard-exit distances
+        # filter by thief-exit and BirSreshtha-exit distances
         candidates = [
             p for p in candidates
-            if manhattan(p, raj) >= min_thief_exit and manhattan(p, guard) >= min_guard_exit
+            if manhattan(p, raj) >= min_thief_exit and manhattan(p, birsreshtha) >= min_birsreshtha_exit
         ]
         if len(candidates) < exits_n:
             continue
@@ -79,7 +79,7 @@ def spawn_match(
         if len(exits) != exits_n:
             continue
 
-        return {"rajakar": raj, "guard": guard, "exits": exits}
+        return {"rajakar": raj, "birsreshtha": birsreshtha, "exits": exits}
 
     raise ValueError(
         "Failed to spawn with constraints. Try a more open maze or reduce min distances.")

@@ -47,7 +47,7 @@ def draw_ui(screen, fonts, state):
     """
     state example:
     {
-      "current": "Rajakar" or "Guard",
+            "current": "Rajakar" or "BirSreshtha",
       "turn": 12,
       "max_turns": 60,
       "seen": False,
@@ -76,11 +76,11 @@ def draw_ui(screen, fonts, state):
                f"Current: {state['current']}", card1.x + 16, card1.y + 58)
     _draw_text(screen, font_body,
                f"Turn Count: {state['turn']} / {state['max_turns']}", card1.x + 16, card1.y + 88)
-    peak = int(round(float(state.get("guard_peak", 0.0)) * 100))
-    exits_known = state.get("guard_exits_known", 0)
+    peak = int(round(float(state.get("birsreshtha_peak", 0.0)) * 100))
+    exits_known = state.get("birsreshtha_exits_known", 0)
     exits_total = state.get("exits_total", 0)
     _draw_text(screen, font_small,
-               f"Guard Confidence: {peak}% | Exits: {exits_known}/{exits_total}", card1.x + 16, card1.y + 114, MUTED)
+               f"BirSreshtha Confidence: {peak}% | Exits: {exits_known}/{exits_total}", card1.x + 16, card1.y + 114, MUTED)
 
     y += 160
 
@@ -112,10 +112,10 @@ def draw_ui(screen, fonts, state):
     )
 
     if is_rajakar_turn:
-        _draw_text(screen, font_small, "Rajakar gets exact Guard position only when adjacent.",
+        _draw_text(screen, font_small, "Rajakar gets exact BirSreshtha position only when adjacent.",
                    card2.x + 16, card2.y + 164, MUTED)
     else:
-        _draw_text(screen, font_small, "Guard captures if adjacent after Guard move.",
+        _draw_text(screen, font_small, "BirSreshtha captures if adjacent after BirSreshtha move.",
                    card2.x + 16, card2.y + 164, MUTED)
 
     y += 210
@@ -133,5 +133,5 @@ def draw_ui(screen, fonts, state):
     else:
         _draw_text(screen, font_body, "Get adjacent to capture.",
                    card3.x + 16, card3.y + 58)
-        _draw_text(screen, font_small, "Capture check happens after Guard move.",
+        _draw_text(screen, font_small, "Capture check happens after BirSreshtha move.",
                    card3.x + 16, card3.y + 92, MUTED)
