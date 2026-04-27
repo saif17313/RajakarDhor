@@ -16,6 +16,7 @@ from render.ui import draw_ui
 MENU = "MENU"
 HOW_TO_PLAY = "HOW_TO_PLAY"
 GAME = "GAME"
+PAUSED = "PAUSED"
 GAME_OVER = "GAME_OVER"
 
 
@@ -231,6 +232,49 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
                 s.BIRSRESHTHA_EDGE, "B", font_exit, facing=birsreshtha_facing)
 
 
+def draw_game_button(screen, rect, text, font, primary=False):
+    mouse_pos = pygame.mouse.get_pos()
+    hovered = rect.collidepoint(mouse_pos)
+    if primary:
+        fill = (68, 78, 35) if not hovered else (92, 106, 48)
+        border = (181, 159, 75) if not hovered else (236, 213, 116)
+        text_color = (241, 235, 211)
+    else:
+        fill = (21, 20, 17) if not hovered else (38, 34, 27)
+        border = (101, 82, 56) if not hovered else (178, 145, 82)
+        text_color = (211, 195, 163)
+
+    shadow = pygame.Surface((rect.w + 12, rect.h + 12), pygame.SRCALPHA)
+    pygame.draw.rect(shadow, (0, 0, 0, 150), shadow.get_rect(), border_radius=7)
+    screen.blit(shadow, (rect.x + 4, rect.y + 6))
+    pygame.draw.rect(screen, fill, rect, border_radius=7)
+    pygame.draw.rect(screen, border, rect, width=2, border_radius=7)
+
+    label = font.render(text, True, text_color)
+    screen.blit(label, label.get_rect(center=rect.center))
+
+
+def draw_pause_button(screen, rect, font):
+    draw_game_button(screen, rect, "Pause", font, primary=False)
+
+
+def draw_center_overlay(screen, title, buttons, font_title, font_body):
+    overlay = pygame.Surface((s.SCREEN_W, s.SCREEN_H), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 170))
+    screen.blit(overlay, (0, 0))
+
+    panel = pygame.Rect(0, 0, 360, 300)
+    panel.center = (s.BOARD_PX // 2, s.SCREEN_H // 2)
+    pygame.draw.rect(screen, (24, 24, 31), panel, border_radius=10)
+    pygame.draw.rect(screen, (92, 82, 58), panel, width=2, border_radius=10)
+
+    title_img = font_title.render(title, True, (245, 245, 255))
+    screen.blit(title_img, title_img.get_rect(center=(panel.centerx, panel.y + 54)))
+
+    for text, rect, primary in buttons:
+        draw_game_button(screen, rect, text, font_body, primary=primary)
+
+
 def main():
     pygame.init()
     setup_background_music()
@@ -244,10 +288,26 @@ def main():
     font_body = pygame.font.SysFont("Segoe UI", 18)
     font_small = pygame.font.SysFont("Segoe UI", 14)
     fonts = (font_title, font_body, font_small)
+    font_button = pygame.font.SysFont("Segoe UI", 20, bold=True)
+    font_overlay_title = pygame.font.SysFont("Segoe UI", 42, bold=True)
 
     menu = MainMenu(s.SCREEN_W, s.SCREEN_H)
     screen_state = MENU
     simulation_speed = menu.speed_multiplier
+    pause_button_rect = pygame.Rect(s.SCREEN_W - 128, 12, 104, 36)
+    overlay_button_w = 220
+    overlay_button_h = 48
+    overlay_button_x = s.BOARD_PX // 2 - overlay_button_w // 2
+    overlay_start_y = s.SCREEN_H // 2 - 52
+    pause_menu_buttons = {
+        "resume": pygame.Rect(overlay_button_x, overlay_start_y, overlay_button_w, overlay_button_h),
+        "restart": pygame.Rect(overlay_button_x, overlay_start_y + 64, overlay_button_w, overlay_button_h),
+        "menu": pygame.Rect(overlay_button_x, overlay_start_y + 128, overlay_button_w, overlay_button_h),
+    }
+    game_over_buttons = {
+        "restart": pygame.Rect(overlay_button_x, overlay_start_y + 32, overlay_button_w, overlay_button_h),
+        "menu": pygame.Rect(overlay_button_x, overlay_start_y + 96, overlay_button_w, overlay_button_h),
+    }
 
     # --- Create a test maze (you can change this anytime) ---
     ascii_map = [
@@ -347,6 +407,12 @@ def main():
 
     reset_game(seed=7)
 
+    def restart_match():
+        nonlocal screen_state, last_ai_tick
+        reset_game()
+        screen_state = GAME
+        last_ai_tick = pygame.time.get_ticks()
+
     def end_turn(action_name: str):
         nonlocal current, turn_count, winner, screen_state
         nonlocal rajakar_pos, birsreshtha_pos, clues, birsreshtha_turns_taken, rajakar_visit_counts
@@ -445,9 +511,7 @@ def main():
                 action = menu.handle_menu_event(event)
                 if action == "start":
                     simulation_speed = menu.speed_multiplier
-                    reset_game()
-                    screen_state = GAME
-                    last_ai_tick = pygame.time.get_ticks()
+                    restart_match()
                 elif action == "how":
                     screen_state = HOW_TO_PLAY
                 elif action == "exit":
@@ -462,19 +526,47 @@ def main():
 
             if screen_state == GAME_OVER:
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
-                    reset_game()
-                    screen_state = GAME
-                    last_ai_tick = pygame.time.get_ticks()
+                    restart_match()
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    if game_over_buttons["restart"].collidepoint(event.pos):
+                        restart_match()
+                    elif game_over_buttons["menu"].collidepoint(event.pos):
+                        screen_state = MENU
+                continue
+
+            if screen_state == PAUSED:
+                if event.type == pygame.KEYDOWN:
+                    if event.key in (pygame.K_p, pygame.K_ESCAPE):
+                        screen_state = GAME
+                        last_ai_tick = pygame.time.get_ticks()
+                    elif event.key == pygame.K_r:
+                        restart_match()
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    if pause_menu_buttons["resume"].collidepoint(event.pos):
+                        screen_state = GAME
+                        last_ai_tick = pygame.time.get_ticks()
+                    elif pause_menu_buttons["restart"].collidepoint(event.pos):
+                        restart_match()
+                    elif pause_menu_buttons["menu"].collidepoint(event.pos):
+                        screen_state = MENU
                 continue
 
             if screen_state != GAME:
                 continue
 
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if pause_button_rect.collidepoint(event.pos):
+                    screen_state = PAUSED
+                    continue
+
             if event.type == pygame.KEYDOWN:
                 # --- Restart (full respawn) ---
                 if event.key == pygame.K_r:
-                    reset_game()
-                    last_ai_tick = pygame.time.get_ticks()
+                    restart_match()
+                    continue
+
+                if event.key in (pygame.K_p, pygame.K_ESCAPE):
+                    screen_state = PAUSED
                     continue
 
                 # If game ended, ignore other inputs
@@ -612,23 +704,35 @@ def main():
                     birsreshtha_pos, birsreshtha_facing, active_scan_cells)
         draw_ui(screen, fonts, state)
 
-        # Winner overlay
-        if winner is not None:
-            overlay = pygame.Surface((s.SCREEN_W, s.SCREEN_H), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 160))
-            screen.blit(overlay, (0, 0))
+        if screen_state == GAME and winner is None:
+            draw_pause_button(screen, pause_button_rect, font_button)
 
+        if screen_state == PAUSED:
+            draw_center_overlay(
+                screen,
+                "Paused",
+                [
+                    ("Resume", pause_menu_buttons["resume"], True),
+                    ("Restart", pause_menu_buttons["restart"], False),
+                    ("Main Menu", pause_menu_buttons["menu"], False),
+                ],
+                font_overlay_title,
+                font_button,
+            )
+
+        if winner is not None:
             msg = f"{winner} WINS!" if winner in (
                 "Rajakar", "BirSreshtha") else "DRAW!"
-            big = pygame.font.SysFont("Segoe UI", 44, bold=True).render(
-                msg, True, (245, 245, 255))
-            small = pygame.font.SysFont("Segoe UI", 18).render(
-                "Press R to restart", True, (200, 200, 215))
-
-            screen.blit(
-                big, (s.BOARD_PX // 2 - big.get_width() // 2, s.SCREEN_H // 2 - 60))
-            screen.blit(
-                small, (s.BOARD_PX // 2 - small.get_width() // 2, s.SCREEN_H // 2 + 6))
+            draw_center_overlay(
+                screen,
+                msg,
+                [
+                    ("Restart", game_over_buttons["restart"], True),
+                    ("Main Menu", game_over_buttons["menu"], False),
+                ],
+                font_overlay_title,
+                font_button,
+            )
 
         pygame.display.flip()
 
