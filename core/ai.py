@@ -185,7 +185,7 @@ def _birsreshtha_heuristic(
 
     score = 0.0
     score += max(0, 12 - dist_gr) * 8.0
-    
+
     # Only penalize Rajakar near exits if BirSreshtha knows about exits
     if known_exits:
         score -= max(0, 10 - dist_re) * 5.0
@@ -196,12 +196,12 @@ def _birsreshtha_heuristic(
 def _birsreshtha_unknown_heuristic(grid: Grid, birsreshtha_pos: Pos, known_exits: List[Pos] = None) -> float:
     # When Rajakar is unseen, patrol toward known exits to deny escape zones.
     score = 0.0
-    
+
     # Only patrol toward exits if BirSreshtha has discovered any
     if known_exits:
         dist_ge = _nearest_exit_distance(grid, birsreshtha_pos, known_exits)
         score += max(0, 10 - dist_ge) * 5.0
-    
+
     # Prefer positions with more movement options (central locations)
     score += len(_legal_moves(grid, birsreshtha_pos)) * 0.2
     return score
@@ -226,7 +226,7 @@ def _apply_action(
         dr, dc = map(int, action.split(":", 1)[1].split(","))
         nr, nc = raj_pos[0] + dr, raj_pos[1] + dc
         if grid.is_walkable(nr, nc):
-                return birsreshtha_pos, (nr, nc)
+            return birsreshtha_pos, (nr, nc)
     return birsreshtha_pos, raj_pos
 
 
@@ -280,7 +280,7 @@ def choose_birsreshtha_minimax_action(
     depth: int = 3,
 ) -> Tuple[Action, Pos]:
     """Return the BirSreshtha action chosen by depth-limited minimax with alpha-beta pruning.
-    
+
     Args:
         known_exits: List of exit positions the BirSreshtha has discovered (fog-of-war).
     """
@@ -289,7 +289,8 @@ def choose_birsreshtha_minimax_action(
     if raj_pos is None:
         if legal_moves:
             best_move = legal_moves[0]
-            best_value = _birsreshtha_unknown_heuristic(grid, best_move, known_exits)
+            best_value = _birsreshtha_unknown_heuristic(
+                grid, best_move, known_exits)
             for m in legal_moves[1:]:
                 value = _birsreshtha_unknown_heuristic(grid, m, known_exits)
                 if value > best_value:
@@ -310,7 +311,8 @@ def choose_birsreshtha_minimax_action(
         if ply == 0:
             return _birsreshtha_heuristic(grid, gpos, rpos, sight_range, known_exits)
 
-        actions = _birsreshtha_actions(grid, gpos) if actor == "BirSreshtha" else _raj_actions(grid, rpos)
+        actions = _birsreshtha_actions(
+            grid, gpos) if actor == "BirSreshtha" else _raj_actions(grid, rpos)
         if not actions:
             return _birsreshtha_heuristic(grid, gpos, rpos, sight_range, known_exits)
 
@@ -318,15 +320,18 @@ def choose_birsreshtha_minimax_action(
             best = -1e12
             for act in actions:
                 ng, nr = _apply_action(grid, actor, gpos, rpos, act)
-                winner = _terminal_after_action(grid, actor, act, ng, nr, turn + 1, max_turns)
+                winner = _terminal_after_action(
+                    grid, actor, act, ng, nr, turn + 1, max_turns)
                 if winner == "BirSreshtha":
                     value = 10000.0 + ply
                 elif winner == "Rajakar":
                     value = -10000.0 - ply
                 elif winner == "Draw":
-                    value = _birsreshtha_heuristic(grid, ng, nr, sight_range, known_exits)
+                    value = _birsreshtha_heuristic(
+                        grid, ng, nr, sight_range, known_exits)
                 else:
-                    value = minimax(ng, nr, "Rajakar", turn + 1, ply - 1, alpha, beta)
+                    value = minimax(ng, nr, "Rajakar", turn +
+                                    1, ply - 1, alpha, beta)
 
                 if value > best:
                     best = value
@@ -339,15 +344,18 @@ def choose_birsreshtha_minimax_action(
         best = 1e12
         for act in actions:
             ng, nr = _apply_action(grid, actor, gpos, rpos, act)
-            winner = _terminal_after_action(grid, actor, act, ng, nr, turn + 1, max_turns)
+            winner = _terminal_after_action(
+                grid, actor, act, ng, nr, turn + 1, max_turns)
             if winner == "BirSreshtha":
                 value = 10000.0 + ply
             elif winner == "Rajakar":
                 value = -10000.0 - ply
             elif winner == "Draw":
-                value = _birsreshtha_heuristic(grid, ng, nr, sight_range, known_exits)
+                value = _birsreshtha_heuristic(
+                    grid, ng, nr, sight_range, known_exits)
             else:
-                value = minimax(ng, nr, "BirSreshtha", turn + 1, ply - 1, alpha, beta)
+                value = minimax(ng, nr, "BirSreshtha", turn +
+                                1, ply - 1, alpha, beta)
 
             if value < best:
                 best = value
@@ -361,17 +369,21 @@ def choose_birsreshtha_minimax_action(
     best_value = -1e12
 
     for act in _birsreshtha_actions(grid, birsreshtha_pos):
-        ng, nr = _apply_action(grid, "BirSreshtha", birsreshtha_pos, raj_pos, act)
-        winner = _terminal_after_action(grid, "BirSreshtha", act, ng, nr, turn_count + 1, max_turns)
+        ng, nr = _apply_action(grid, "BirSreshtha",
+                               birsreshtha_pos, raj_pos, act)
+        winner = _terminal_after_action(
+            grid, "BirSreshtha", act, ng, nr, turn_count + 1, max_turns)
 
         if winner == "BirSreshtha":
             value = 10000.0
         elif winner == "Rajakar":
             value = -10000.0
         elif winner == "Draw":
-            value = _birsreshtha_heuristic(grid, ng, nr, sight_range, known_exits)
+            value = _birsreshtha_heuristic(
+                grid, ng, nr, sight_range, known_exits)
         else:
-            value = minimax(ng, nr, "Rajakar", turn_count + 1, depth - 1, -1e12, 1e12)
+            value = minimax(ng, nr, "Rajakar", turn_count +
+                            1, depth - 1, -1e12, 1e12)
 
         if value > best_value:
             best_value = value
@@ -414,22 +426,27 @@ def choose_rajakar_fuzzy_action(
     if grid.get(*raj_pos) == EXIT:
         candidates.append(("ESCAPE", raj_pos))
 
-    curr_birsreshtha_dist = manhattan(raj_pos, birsreshtha_pos) if birsreshtha_pos is not None else None
+    curr_birsreshtha_dist = manhattan(
+        raj_pos, birsreshtha_pos) if birsreshtha_pos is not None else None
     seen_bonus = 1.0 if clues.get("seen", False) else 0.0
     heard_bonus = 0.6 if clues.get("heard", False) else 0.0
-    
+
     # BirSreshtha is only detected if Rajakar can actually see it (plain sight)
     birsreshtha_detected = clues.get("seen", False)
-    
-    compelled_revisit = bool(moves) and all(visit_counts.get(p, 0) > 0 for p in moves)
+
+    compelled_revisit = bool(moves) and all(
+        visit_counts.get(p, 0) > 0 for p in moves)
 
     best = ("WAIT", raj_pos)
     best_score = -1e12
 
     for action, next_pos in candidates:
-        birsreshtha_dist = manhattan(next_pos, birsreshtha_pos) if birsreshtha_pos is not None else None
-        near_birsreshtha = _clamp((4.0 - birsreshtha_dist) / 4.0) if birsreshtha_dist is not None else 0.0
-        far_birsreshtha = _clamp((birsreshtha_dist - 2.0) / 6.0) if birsreshtha_dist is not None else 0.0
+        birsreshtha_dist = manhattan(
+            next_pos, birsreshtha_pos) if birsreshtha_pos is not None else None
+        near_birsreshtha = _clamp(
+            (4.0 - birsreshtha_dist) / 4.0) if birsreshtha_dist is not None else 0.0
+        far_birsreshtha = _clamp(
+            (birsreshtha_dist - 2.0) / 6.0) if birsreshtha_dist is not None else 0.0
 
         danger = max(near_birsreshtha, seen_bonus, heard_bonus)
         moving_away_from_birsreshtha = (
@@ -448,7 +465,7 @@ def choose_rajakar_fuzzy_action(
             # Rule: If BirSreshtha is visible in plain sight, strongly prioritize evasion
             if birsreshtha_detected and moving_away_from_birsreshtha:
                 score += 6.0  # Strong evasion bonus when BirSreshtha is sighted
-            
+
             # Rule: If danger is high, prioritize creating distance from BirSreshtha.
             if moving_away_from_birsreshtha:
                 score += danger * 4.5 + far_birsreshtha * 2.0

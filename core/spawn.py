@@ -18,7 +18,8 @@ def spawn_match(
     exits_n: int = 2,
     min_rg: int = 4,            # BirSreshtha-Rajakar distance
     min_thief_exit: int = 4,    # thief to each exit
-    min_birsreshtha_exit: int = 8,    # BirSreshtha to each exit (your constraint)
+    # BirSreshtha to each exit (your constraint)
+    min_birsreshtha_exit: int = 8,
     min_exit_exit: int = 8,     # exit-exit distance
     attempts: int = 8000,
 ) -> Dict[str, object]:

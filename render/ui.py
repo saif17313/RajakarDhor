@@ -100,7 +100,8 @@ def draw_ui(screen, fonts, state):
     _draw_pill(
         screen, font_small,
         "CONTACT:" if is_rajakar_turn else "VISION:",
-        "ADJACENT" if (is_rajakar_turn and seen) else ("NONE" if is_rajakar_turn else ("LOCKED" if seen else "NO LOCK")),
+        "ADJACENT" if (is_rajakar_turn and seen) else (
+            "NONE" if is_rajakar_turn else ("LOCKED" if seen else "NO LOCK")),
         card2.x + 16, card2.y + 92,
         ok=seen
     )

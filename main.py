@@ -1,4 +1,8 @@
 # main.py
+from __future__ import annotations
+
+import os
+
 import pygame
 import settings as s
 import core.rules as rules
@@ -6,6 +10,23 @@ import core.ai as ai
 from core.grid import Grid, FLOOR, WALL, EXIT
 from core.spawn import spawn_match
 from render.ui import draw_ui
+
+
+def setup_background_music():
+    try:
+        pygame.mixer.init()
+    except pygame.error:
+        return
+
+    if not os.path.exists(s.BGM_FILE):
+        return
+
+    try:
+        pygame.mixer.music.load(s.BGM_FILE)
+        pygame.mixer.music.set_volume(s.BGM_VOLUME)
+        pygame.mixer.music.play(-1)
+    except pygame.error:
+        pass
 
 
 def try_move(grid, pos, dr, dc):
@@ -59,7 +80,8 @@ def draw_player(screen, r, c, fill, edge, label, font_small, facing=None):
         arrow_end_x = cx + dc * arrow_len
         arrow_end_y = cy + dr * arrow_len
         # Draw arrow line
-        pygame.draw.line(screen, (10, 10, 12), (cx, cy), (arrow_end_x, arrow_end_y), 3)
+        pygame.draw.line(screen, (10, 10, 12), (cx, cy),
+                         (arrow_end_x, arrow_end_y), 3)
         # Draw arrow head (small triangle)
         head_size = 5
         if dr != 0:  # Vertical
@@ -98,7 +120,8 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
     pygame.draw.rect(screen, s.PANEL_BG, panel_rect)
 
     # Divider line
-    pygame.draw.line(screen, s.GRID_LINE, (s.BOARD_PX, 0), (s.BOARD_PX, s.SCREEN_H), 2)
+    pygame.draw.line(screen, s.GRID_LINE, (s.BOARD_PX, 0),
+                     (s.BOARD_PX, s.SCREEN_H), 2)
 
     # --- Draw tiles from grid ---
     for r in range(s.GRID_SIZE):
@@ -120,7 +143,8 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
 
                 if t == EXIT:
                     # exit overlay
-                    pygame.draw.rect(screen, s.EXIT_FILL, rect, border_radius=10)
+                    pygame.draw.rect(screen, s.EXIT_FILL,
+                                     rect, border_radius=10)
 
                     # glow (cheap but looks great)
                     glow = pygame.Surface(
@@ -143,10 +167,11 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
         for r, c in scan_cells:
             x = c * s.TILE_SIZE
             y = s.TOP_BAR_H + r * s.TILE_SIZE
-            overlay = pygame.Surface((s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
+            overlay = pygame.Surface(
+                (s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
             overlay.fill((70, 170, 255, 80))
             screen.blit(overlay, (x, y))
-    
+
     # BirSreshtha vision cone (show what BirSreshtha can see)
     if birsreshtha_facing != (0, 0):
         gr, gc = birsreshtha_pos
@@ -159,10 +184,11 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
                 break
             x = vc * s.TILE_SIZE
             y = s.TOP_BAR_H + vr * s.TILE_SIZE
-            overlay = pygame.Surface((s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
+            overlay = pygame.Surface(
+                (s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
             overlay.fill((90, 180, 255, 40))  # Light blue tint for vision
             screen.blit(overlay, (x, y))
-    
+
     # Rajakar vision (4 directions: up, down, left, right)
     rr, rc = raj_pos
     for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:  # up, down, left, right
@@ -174,8 +200,10 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
                 break
             x = vc * s.TILE_SIZE
             y = s.TOP_BAR_H + vr * s.TILE_SIZE
-            overlay = pygame.Surface((s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
-            overlay.fill((240, 190, 70, 30))  # Light gold tint for Rajakar vision
+            overlay = pygame.Surface(
+                (s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
+            # Light gold tint for Rajakar vision
+            overlay.fill((240, 190, 70, 30))
             screen.blit(overlay, (x, y))
 
     # Grid lines (on top for crisp look)
@@ -192,11 +220,13 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
     gr, gc = birsreshtha_pos
 
     draw_player(screen, rr, rc, s.RAJAKAR_FILL, s.RAJAKAR_EDGE, "R", font_exit)
-    draw_player(screen, gr, gc, s.BIRSRESHTHA_FILL, s.BIRSRESHTHA_EDGE, "B", font_exit, facing=birsreshtha_facing)
+    draw_player(screen, gr, gc, s.BIRSRESHTHA_FILL,
+                s.BIRSRESHTHA_EDGE, "B", font_exit, facing=birsreshtha_facing)
 
 
 def main():
     pygame.init()
+    setup_background_music()
     pygame.display.set_caption(s.TITLE)
 
     screen = pygame.display.set_mode((s.SCREEN_W, s.SCREEN_H))
@@ -243,10 +273,12 @@ def main():
     rajakar_visit_counts = {rajakar_pos: 1}
     scan_fx_cells = []
     scan_fx_until_ms = 0
-    birsreshtha_prob_map = ai.init_birsreshtha_probability_map(grid, birsreshtha_pos)
+    birsreshtha_prob_map = ai.init_birsreshtha_probability_map(
+        grid, birsreshtha_pos)
     last_birsreshtha_pos = None
     birsreshtha_known_exits = []  # Fog-of-war: BirSreshtha discovers exits through vision
-    birsreshtha_facing = (1, 0)  # Direction BirSreshtha is facing (dr, dc), starts facing down
+    # Direction BirSreshtha is facing (dr, dc), starts facing down
+    birsreshtha_facing = (1, 0)
 
     # What each player knows about the opponent on THEIR upcoming turn:
     clues = {
@@ -271,7 +303,8 @@ def main():
 
         # 1) Check win conditions tied to the actor
         if current == "Rajakar":
-            rajakar_visit_counts[rajakar_pos] = rajakar_visit_counts.get(rajakar_pos, 0) + 1
+            rajakar_visit_counts[rajakar_pos] = rajakar_visit_counts.get(
+                rajakar_pos, 0) + 1
             # Immediate capture: adjacency to BirSreshtha ends the game instantly.
             if rules.manhattan(birsreshtha_pos, rajakar_pos) == 1:
                 winner = "BirSreshtha"
@@ -304,7 +337,8 @@ def main():
         # 5) Update clues for the NEXT player (the one who will move now)
         if current == "Rajakar":
             # BirSreshtha is next: what can BirSreshtha sense about Rajakar?
-            seen = rules.in_directional_sight(grid, birsreshtha_pos, rajakar_pos, birsreshtha_facing, s.SIGHT_RANGE)
+            seen = rules.in_directional_sight(
+                grid, birsreshtha_pos, rajakar_pos, birsreshtha_facing, s.SIGHT_RANGE)
             next_birsreshtha_turn_number = birsreshtha_turns_taken + 1
             power_ready = (
                 s.BIRSRESHTHA_POWER_COOLDOWN_TURNS > 0
@@ -314,10 +348,11 @@ def main():
             if power_ready and rules.in_power_scan(birsreshtha_pos, rajakar_pos, s.BIRSRESHTHA_POWER_SCAN_RADIUS):
                 seen = True
             if power_ready:
-                scan_fx_cells = rules.power_scan_cells(grid, birsreshtha_pos, s.BIRSRESHTHA_POWER_SCAN_RADIUS)
+                scan_fx_cells = rules.power_scan_cells(
+                    grid, birsreshtha_pos, s.BIRSRESHTHA_POWER_SCAN_RADIUS)
                 scan_fx_until_ms = pygame.time.get_ticks() + max(450, s.AI_TURN_DELAY_MS)
             heard = rules.heard_noise(birsreshtha_pos, rajakar_pos,
-                                action_noise_radius(action_name))
+                                      action_noise_radius(action_name))
             clues["BirSreshtha"] = {"seen": seen, "heard": heard}
             birsreshtha_prob_map = ai.update_birsreshtha_probability_map(
                 grid,
@@ -335,9 +370,10 @@ def main():
         else:
             # Rajakar is next: what can Rajakar sense about BirSreshtha?
             # Rajakar can only see BirSreshtha in plain sight (4 directions) with line-of-sight
-            seen = rules.in_straight_sight(grid, rajakar_pos, birsreshtha_pos, s.SIGHT_RANGE)
+            seen = rules.in_straight_sight(
+                grid, rajakar_pos, birsreshtha_pos, s.SIGHT_RANGE)
             heard = rules.heard_noise(rajakar_pos, birsreshtha_pos,
-                                action_noise_radius(action_name))
+                                      action_noise_radius(action_name))
             clues["Rajakar"] = {"seen": seen, "heard": heard}
             current = "Rajakar"
 
@@ -373,7 +409,8 @@ def main():
                     rajakar_visit_counts = {rajakar_pos: 1}
                     scan_fx_cells = []
                     scan_fx_until_ms = 0
-                    birsreshtha_prob_map = ai.init_birsreshtha_probability_map(grid, birsreshtha_pos)
+                    birsreshtha_prob_map = ai.init_birsreshtha_probability_map(
+                        grid, birsreshtha_pos)
                     last_birsreshtha_pos = None
                     birsreshtha_known_exits = []
                     birsreshtha_facing = (1, 0)
@@ -418,7 +455,8 @@ def main():
                         if ok:
                             last_birsreshtha_pos = birsreshtha_pos
                             birsreshtha_pos = new_pos
-                            birsreshtha_facing = (dr, dc)  # Update facing direction
+                            # Update facing direction
+                            birsreshtha_facing = (dr, dc)
                             acted = True
                             action_name = "MOVE"
 
@@ -465,7 +503,8 @@ def main():
                         last_birsreshtha_pos = birsreshtha_pos
                         dr = next_birsreshtha[0] - birsreshtha_pos[0]
                         dc = next_birsreshtha[1] - birsreshtha_pos[1]
-                        birsreshtha_facing = (dr, dc)  # Update facing direction
+                        # Update facing direction
+                        birsreshtha_facing = (dr, dc)
                         birsreshtha_pos = next_birsreshtha
                 else:
                     raj_target = birsreshtha_pos if clues["Rajakar"]["seen"] else None
@@ -489,13 +528,15 @@ def main():
         state["max_turns"] = s.MAX_TURNS
         state["seen"] = clues[current]["seen"]
         state["heard"] = clues[current]["heard"]
-        state["birsreshtha_peak"] = max(birsreshtha_prob_map.values()) if birsreshtha_prob_map else 0.0
+        state["birsreshtha_peak"] = max(
+            birsreshtha_prob_map.values()) if birsreshtha_prob_map else 0.0
         state["birsreshtha_exits_known"] = len(birsreshtha_known_exits)
         state["exits_total"] = len(exits)
 
         # --- Draw ---
         active_scan_cells = scan_fx_cells if pygame.time.get_ticks() < scan_fx_until_ms else None
-        draw_layout(screen, grid, font_small, rajakar_pos, birsreshtha_pos, birsreshtha_facing, active_scan_cells)
+        draw_layout(screen, grid, font_small, rajakar_pos,
+                    birsreshtha_pos, birsreshtha_facing, active_scan_cells)
         draw_ui(screen, fonts, state)
 
         # Winner overlay

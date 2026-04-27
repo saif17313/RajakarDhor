@@ -14,6 +14,10 @@ SCREEN_H = TOP_BAR_H + BOARD_PX
 FPS = 60
 TITLE = "RajakarDhor"
 
+# --- Audio ---
+BGM_FILE = "assets/sfx/bgm.mp3"
+BGM_VOLUME = 0.35
+
 # --- Game rules ---
 SIGHT_RANGE = 3
 
