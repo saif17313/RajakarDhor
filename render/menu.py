@@ -278,57 +278,55 @@ class Slider:
         self.background_image = background_image
         self.clock_icon = clock_icon
         self.value = clamp(value, 0.0, 1.0)
-        def _draw_card_image(
-            self,
-            surface: pygame.Surface,
-            image: Optional[pygame.Surface],
-            rect: pygame.Rect,
-            fill: Color,
-            border: Color,
-            fallback_title: str,
-            description: Tuple[str, str],
-        ) -> None:
-            shadow = pygame.Surface((rect.w + 14, rect.h + 14), pygame.SRCALPHA)
-            pygame.draw.rect(shadow, (0, 0, 0, 145),
-                             shadow.get_rect(), border_radius=8)
-            surface.blit(shadow, (rect.x + 6, rect.y + 8))
+        self.dragging = False
 
-            if image is not None:
-                fitted = blit_fit(surface, image, rect)
-                pygame.draw.rect(surface, border, fitted, width=2, border_radius=5)
-                caption_rect = pygame.Rect(
-                    fitted.x + int(fitted.w * 0.05),
-                    fitted.y + int(fitted.h * 0.78),
-                    int(fitted.w * 0.90),
-                    int(fitted.h * 0.16),
-                )
-                caption_bg = pygame.Surface(caption_rect.size, pygame.SRCALPHA)
-                pygame.draw.rect(caption_bg, (*fill, 235), caption_bg.get_rect(), border_radius=7)
-                pygame.draw.rect(caption_bg, (*border, 150), caption_bg.get_rect(), width=2, border_radius=7)
-                surface.blit(caption_bg, caption_rect.topleft)
+    @property
+    def speed_multiplier(self) -> float:
+        if self.value <= 0.5:
+            return 0.5 + self.value
+        return 1.0 + (self.value - 0.5) * 4.0
 
-                line_gap = max(20, int(caption_rect.h * 0.42))
-                first_y = caption_rect.centery - line_gap // 2
-                for index, line in enumerate(description):
-                    draw_text_with_shadow(
-                        surface,
-                        self.fonts["small_bold"],
-                        line,
-                        (caption_rect.centerx, first_y + index * line_gap),
-                        (232, 220, 190),
-                        center=True,
-                        offset=(2, 2),
-                    )
-                return
+    def speed_label(self) -> str:
+        speed = self.speed_multiplier
+        if speed < 0.85:
+            return "Slow"
+        if speed < 1.35:
+            return "Normal"
+        if speed < 2.25:
+            return "Fast"
+        return "Very Fast"
 
-            pygame.draw.rect(surface, fill, rect, border_radius=7)
-            pygame.draw.rect(surface, border, rect, width=2, border_radius=7)
-            draw_text_with_shadow(surface, self.fonts["small_bold"], fallback_title, (rect.centerx, rect.y + 36), border, center=True)
-            draw_text_with_shadow(surface, self.fonts["small_bold"], description[0], (rect.centerx, rect.bottom - 78), (232, 220, 190), center=True, offset=(2, 2))
-            draw_text_with_shadow(surface, self.fonts["small_bold"], description[1], (rect.centerx, rect.bottom - 48), (232, 220, 190), center=True, offset=(2, 2))
-                         box.get_rect(), border_radius=7)
-        pygame.draw.rect(box, (125, 101, 66, 214),
-                         box.get_rect(), width=2, border_radius=7)
+    def _set_from_mouse(self, x: int) -> None:
+        self.value = clamp((x - self.rect.x) / max(1, self.rect.w), 0.0, 1.0)
+
+    def handle_event(self, event: pygame.event.Event) -> bool:
+        knob_x = self.rect.x + int(self.rect.w * self.value)
+        knob = pygame.Rect(0, 0, 42, 42)
+        knob.center = (knob_x, self.rect.centery)
+        hit = self.rect.inflate(34, 52)
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if knob.collidepoint(event.pos) or hit.collidepoint(event.pos):
+                self.dragging = True
+                self._set_from_mouse(event.pos[0])
+                return True
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            was_dragging = self.dragging
+            self.dragging = False
+            return was_dragging
+        if event.type == pygame.MOUSEMOTION and self.dragging:
+            self._set_from_mouse(event.pos[0])
+            return True
+        return False
+
+    def draw(self, surface: pygame.Surface, fonts: Dict[str, pygame.font.Font]) -> None:
+        panel_w = self.rect.w + 18
+        panel = pygame.Rect(0, self.rect.y - 18, panel_w, 98)
+        panel.centerx = self.rect.centerx
+
+        box = pygame.Surface(panel.size, pygame.SRCALPHA)
+        pygame.draw.rect(box, (17, 16, 13, 168), box.get_rect(), border_radius=7)
+        pygame.draw.rect(box, (125, 101, 66, 214), box.get_rect(), width=2, border_radius=7)
         surface.blit(box, panel.topleft)
 
         label_y = panel.y - 34
@@ -336,35 +334,27 @@ class Slider:
         if self.clock_icon is not None:
             icon = pygame.transform.smoothscale(self.clock_icon, (28, 28))
             icon = tint_image(icon, label_color)
-            surface.blit(icon, icon.get_rect(
-                center=(panel.x + 18, label_y + 12)))
+            surface.blit(icon, icon.get_rect(center=(panel.x + 18, label_y + 12)))
         else:
-            pygame.draw.circle(surface, label_color,
-                               (panel.x + 18, label_y + 12), 12, width=3)
-        draw_text_with_shadow(surface, fonts["small_bold"], "SIMULATION SPEED", (
-            panel.x + 46, label_y), label_color, (0, 0, 0), offset=(2, 2))
+            pygame.draw.circle(surface, label_color, (panel.x + 18, label_y + 12), 12, width=3)
+        draw_text_with_shadow(surface, fonts["small_bold"], "SIMULATION SPEED", (panel.x + 46, label_y), label_color, (0, 0, 0), offset=(2, 2))
 
         pygame.draw.rect(surface, (13, 14, 11), self.rect, border_radius=999)
-        pygame.draw.rect(surface, (105, 91, 60), self.rect,
-                         width=2, border_radius=999)
+        pygame.draw.rect(surface, (105, 91, 60), self.rect, width=2, border_radius=999)
 
         fill_rect = self.rect.copy()
         fill_rect.w = max(8, int(self.rect.w * self.value))
         pygame.draw.rect(surface, (105, 127, 57), fill_rect, border_radius=999)
 
         knob_x = self.rect.x + int(self.rect.w * self.value)
-        pygame.draw.circle(surface, (25, 29, 18),
-                           (knob_x, self.rect.centery), 18)
-        pygame.draw.circle(surface, (234, 226, 195),
-                           (knob_x, self.rect.centery), 18, width=3)
+        pygame.draw.circle(surface, (25, 29, 18), (knob_x, self.rect.centery), 18)
+        pygame.draw.circle(surface, (234, 226, 195), (knob_x, self.rect.centery), 18, width=3)
 
         text_y = self.rect.bottom + 18
         muted = (202, 178, 132)
-        draw_text_with_shadow(
-            surface, fonts["small"], "Slow", (panel.x + 14, text_y), muted, offset=(1, 1))
+        draw_text_with_shadow(surface, fonts["small"], "Slow", (panel.x + 14, text_y), muted, offset=(1, 1))
         current = f"Current: {self.speed_multiplier:.1f}x"
-        draw_text_with_shadow(surface, fonts["small"], current, (
-            panel.centerx, text_y), (223, 207, 169), center=True, offset=(1, 1))
+        draw_text_with_shadow(surface, fonts["small"], current, (panel.centerx, text_y), (223, 207, 169), center=True, offset=(1, 1))
         fast = fonts["small"].render("Fast", True, muted)
         shadow = fonts["small"].render("Fast", True, (0, 0, 0))
         pos = (panel.right - fast.get_width() - 14, text_y)
@@ -585,7 +575,7 @@ class MainMenu:
         x = int(self.width * 0.53)
         y = int(self.height * 0.31)
 
-<<<<<<< HEAD
+
         self._draw_card_image(
             surface,
             self.assets["bir_card"],
@@ -604,7 +594,7 @@ class MainMenu:
             "RAJAKAR",
             ("Move in silence.", "Use cover."),
         )
-=======
+
         self._draw_card_image(
             surface,
             self.assets["bir_card"],
@@ -623,7 +613,7 @@ class MainMenu:
             "RAJAKAR",
             ("Move in silence.", "Use cover."),
         )
->>>>>>> d0c6725 (UI: align slider, trim slider box, adjust START button sizing, show numeric multiplier)
+
 
     def _draw_card_image(
         self,
@@ -670,14 +660,9 @@ class MainMenu:
 
         pygame.draw.rect(surface, fill, rect, border_radius=7)
         pygame.draw.rect(surface, border, rect, width=2, border_radius=7)
-<<<<<<< HEAD
         draw_text_with_shadow(surface, self.fonts["small_bold"], fallback_title, (rect.centerx, rect.y + 36), border, center=True)
         draw_text_with_shadow(surface, self.fonts["small_bold"], description[0], (rect.centerx, rect.bottom - 78), (232, 220, 190), center=True, offset=(2, 2))
         draw_text_with_shadow(surface, self.fonts["small_bold"], description[1], (rect.centerx, rect.bottom - 48), (232, 220, 190), center=True, offset=(2, 2))
-=======
-        draw_text_with_shadow(surface, self.fonts["small_bold"], fallback_title, (
-            rect.centerx, rect.y + 36), border, center=True)
->>>>>>> d0c6725 (UI: align slider, trim slider box, adjust START button sizing, show numeric multiplier)
 
     def _draw_footer(self, surface: pygame.Surface) -> None:
         footer = "(c) 2024 RajakarDhor Team. All rights reserved."

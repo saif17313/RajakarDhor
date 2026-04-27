@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 
 import pygame
+from typing import Optional
 import settings as s
 import core.rules as rules
 import core.ai as ai
@@ -11,6 +12,54 @@ from core.grid import Grid, FLOOR, WALL, EXIT
 from core.spawn import spawn_match
 from render.menu import MainMenu
 from render.ui import draw_ui
+
+
+# Try to load a board/grid background image from common asset locations.
+def _load_board_image() -> Optional[pygame.Surface]:
+    # Search the project's assets directory recursively for grid.png so any
+    # subfolder (e.g. assets/gameplay) will be found.
+    base_dir = os.path.dirname(__file__)
+    assets_dir = os.path.join(base_dir, "assets")
+    if os.path.exists(assets_dir):
+        for root, _dirs, files in os.walk(assets_dir):
+            if "grid.png" in files:
+                p = os.path.join(root, "grid.png")
+                try:
+                    img = pygame.image.load(p)
+                    img = img.convert_alpha()
+                    # Trim any symmetric border so the artwork maps cleanly to
+                    # the 10x10 gameplay grid (e.g. 1254px -> 1250px).
+                    crop_w = img.get_width() - (img.get_width() % s.GRID_SIZE)
+                    crop_h = img.get_height() - (img.get_height() % s.GRID_SIZE)
+                    if crop_w > 0 and crop_h > 0 and (crop_w != img.get_width() or crop_h != img.get_height()):
+                        crop_x = (img.get_width() - crop_w) // 2
+                        crop_y = (img.get_height() - crop_h) // 2
+                        img = img.subsurface((crop_x, crop_y, crop_w, crop_h)).copy()
+                    try:
+                        print(f"[board] loaded grid image: {p} size={img.get_size()}")
+                    except Exception:
+                        print(f"[board] loaded grid image: {p}")
+                    return img
+                except pygame.error:
+                    continue
+
+    # Fallback to a few common relative locations (keeps backward-compatibility)
+    candidates = [
+        os.path.join(base_dir, "assets", "menu", "grid.png"),
+        os.path.join(base_dir, "assets", "grid.png"),
+        os.path.join(base_dir, "assets", "tiles", "grid.png"),
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            try:
+                img = pygame.image.load(p)
+                return img.convert_alpha()
+            except pygame.error:
+                continue
+    return None
+
+
+BOARD_BG_IMAGE = None
 
 
 MENU = "MENU"
@@ -121,7 +170,18 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
 
     # Board area
     board_rect = pygame.Rect(0, s.TOP_BAR_H, s.BOARD_PX, s.BOARD_PX)
-    pygame.draw.rect(screen, s.BOARD_BG, board_rect)
+    # If a board background image is available, scale & blit it; otherwise fill.
+    global BOARD_BG_IMAGE
+    if BOARD_BG_IMAGE is None:
+        BOARD_BG_IMAGE = _load_board_image()
+    if BOARD_BG_IMAGE is not None:
+        try:
+            scaled = pygame.transform.smoothscale(BOARD_BG_IMAGE, (s.BOARD_PX, s.BOARD_PX))
+            screen.blit(scaled, board_rect.topleft)
+        except Exception:
+            pygame.draw.rect(screen, s.BOARD_BG, board_rect)
+    else:
+        pygame.draw.rect(screen, s.BOARD_BG, board_rect)
 
     # UI panel
     panel_rect = pygame.Rect(s.BOARD_PX, 0, s.UI_PANEL_W, s.SCREEN_H)
@@ -132,6 +192,7 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
                      (s.BOARD_PX, s.SCREEN_H), 2)
 
     # --- Draw tiles from grid ---
+    use_board_image = BOARD_BG_IMAGE is not None
     for r in range(s.GRID_SIZE):
         for c in range(s.GRID_SIZE):
             x = c * s.TILE_SIZE
@@ -141,13 +202,20 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
             t = grid.get(r, c)
 
             if t == WALL:
-                pygame.draw.rect(screen, s.WALL_FILL, rect)
-                pygame.draw.rect(screen, s.WALL_EDGE, rect, width=2)
+                # The grid image already shows wall/obstacle tiles visually,
+                # so keep the collision logic but don't paint an extra black
+                # wall over the board.
+                if not use_board_image:
+                    pygame.draw.rect(screen, s.WALL_FILL, rect)
+                    pygame.draw.rect(screen, s.WALL_EDGE, rect, width=2)
 
             else:
-                # floor (keep your nice checkerboard for walkable tiles)
-                base = s.TILE_A if (r + c) % 2 == 0 else s.TILE_B
-                pygame.draw.rect(screen, base, rect)
+                # floor: if we have a background image, skip drawing the
+                # checkerboard so the image remains visible. Otherwise draw
+                # the checkerboard floor as before.
+                if not use_board_image:
+                    base = s.TILE_A if (r + c) % 2 == 0 else s.TILE_B
+                    pygame.draw.rect(screen, base, rect)
 
                 if t == EXIT:
                     # exit overlay
@@ -214,14 +282,16 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
             overlay.fill((240, 190, 70, 30))
             screen.blit(overlay, (x, y))
 
-    # Grid lines (on top for crisp look)
-    for i in range(s.GRID_SIZE + 1):
-        x = i * s.TILE_SIZE
-        pygame.draw.line(screen, s.GRID_LINE, (x, s.TOP_BAR_H),
-                         (x, s.TOP_BAR_H + s.BOARD_PX), 1)
+    # Grid lines: the board image already has its own grid, so avoid drawing
+    # a second set of lines that can make the board look offset.
+    if not use_board_image:
+        for i in range(s.GRID_SIZE + 1):
+            x = i * s.TILE_SIZE
+            pygame.draw.line(screen, s.GRID_LINE, (x, s.TOP_BAR_H),
+                             (x, s.TOP_BAR_H + s.BOARD_PX), 1)
 
-        y = s.TOP_BAR_H + i * s.TILE_SIZE
-        pygame.draw.line(screen, s.GRID_LINE, (0, y), (s.BOARD_PX, y), 1)
+            y = s.TOP_BAR_H + i * s.TILE_SIZE
+            pygame.draw.line(screen, s.GRID_LINE, (0, y), (s.BOARD_PX, y), 1)
 
     # --- Draw players on top of tiles ---
     rr, rc = raj_pos
