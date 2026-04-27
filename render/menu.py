@@ -270,7 +270,6 @@ class MainMenu:
             "book": load_image(os.path.join("assets", "icons", "book.png")),
             "exit": load_image(os.path.join("assets", "icons", "exit.png")),
             "clock": load_image(os.path.join("assets", "icons", "clock.png")),
-            "settings": load_image(os.path.join("assets", "icons", "settings.png")),
         }
 
     def _build_fonts(self) -> Dict[str, pygame.font.Font]:
@@ -401,14 +400,11 @@ class MainMenu:
         title = "RajakarDhor"
         title_rect = draw_text_with_shadow(surface, self.fonts["title"], title, (x, y), (226, 215, 181), (10, 8, 4), offset=(5, 7))
 
-        sub_y = title_rect.bottom + 16
-        red = (151, 55, 42)
-        pygame.draw.circle(surface, red, (x + 18, sub_y + 15), 8)
-        pygame.draw.circle(surface, red, (x + min(int(self.width * 0.41), 470), sub_y + 15), 8)
-        draw_text_with_shadow(surface, self.fonts["subtitle"], "TURN-BASED STEALTH PURSUIT", (x + 48, sub_y), (186, 158, 101), (0, 0, 0), offset=(2, 3))
+        sub_y = title_rect.bottom + 6
+        draw_text_with_shadow(surface, self.fonts["subtitle"], "TURN-BASED STEALTH PURSUIT", (x + 4, sub_y), (186, 158, 101), (0, 0, 0), offset=(2, 3))
 
-        mission_y = sub_y + max(34, int(self.height * 0.044))
-        draw_text_with_shadow(surface, self.fonts["mission"], "Eliminate the Rajakar without being detected.", (x + 48, mission_y), (205, 178, 125), (0, 0, 0), offset=(2, 3))
+        mission_y = sub_y + max(28, int(self.height * 0.038))
+        draw_text_with_shadow(surface, self.fonts["mission"], "Eliminate the Rajakar without being detected.", (x + 4, mission_y), (205, 178, 125), (0, 0, 0), offset=(2, 3))
 
     def _draw_character_cards(self, surface: pygame.Surface) -> None:
         gap = 25
@@ -447,24 +443,7 @@ class MainMenu:
         draw_text_with_shadow(surface, self.fonts["small_bold"], fallback_title, (rect.centerx, rect.y + 36), border, center=True)
 
     def _draw_footer(self, surface: pygame.Surface) -> None:
-        icon = self.assets["settings"]
-        color = (164, 146, 100)
-        x = int(self.width * 0.02)
-        y = min(
-            max(int(self.height * 0.88), self.slider.rect.bottom + 24),
-            self.height - 74,
-        )
-        if icon is not None:
-            size = max(28, int(self.height * 0.045))
-            image = tint_image(pygame.transform.smoothscale(icon, (size, size)), color)
-            surface.blit(image, image.get_rect(center=(x + size // 2, y + size // 2)))
-            text_x = x + size + 18
-        else:
-            pygame.draw.circle(surface, color, (x + 20, y + 20), 15, width=5)
-            text_x = x + 58
-        draw_text_with_shadow(surface, self.fonts["small_bold"], "SETTINGS", (text_x, y + 9), color, offset=(1, 1))
-
-        footer = "© 2024 RajakarDhor Team. All rights reserved."
+        footer = "(c) 2024 RajakarDhor Team. All rights reserved."
         draw_text_with_shadow(surface, self.fonts["small"], footer, (int(self.width * 0.02), self.height - 36), (123, 106, 75), offset=(1, 1))
         version = self.fonts["small"].render("v1.0.0", True, (129, 112, 77))
         shadow = self.fonts["small"].render("v1.0.0", True, (0, 0, 0))
