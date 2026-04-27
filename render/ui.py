@@ -114,7 +114,8 @@ def _draw_sidebar_ui(screen, fonts, state, sidebar):
     is_rajakar_turn = state["current"] == "Rajakar"
 
     x, y = _sidebar_pos(BOARD_PX, 72, 225)
-    _draw_text_shadow(screen, font_body, f"Current: {state['current']}", x, y, ink)
+    _draw_text_shadow(screen, font_body,
+                      f"Current: {state['current']}", x, y, ink)
     x, y = _sidebar_pos(BOARD_PX, 72, 306)
     _draw_text_shadow(
         screen, font_body, f"Turn Count: {state['turn']} / {state['max_turns']}", x, y, ink)
@@ -122,7 +123,7 @@ def _draw_sidebar_ui(screen, fonts, state, sidebar):
     _draw_text_shadow(
         screen, font_small, f"Confidence: {peak}%   Exits: {exits_known}/{exits_total}", x, y, muted)
 
-    x, y = _sidebar_pos(BOARD_PX, 72, 918)
+    x, y = _sidebar_pos(BOARD_PX, 72, 872)
     signal_title = "Contact this turn:" if is_rajakar_turn else "Signals this turn:"
     _draw_text_shadow(screen, font_body, signal_title, x, y, ink)
 
@@ -139,13 +140,17 @@ def _draw_sidebar_ui(screen, fonts, state, sidebar):
 
     x, y = _sidebar_pos(BOARD_PX, 72, 1460)
     if state["current"] == "Rajakar":
-        _draw_text_shadow(screen, font_body, "Reach EXIT and Escape.", x, y, strong)
+        _draw_text_shadow(screen, font_body,
+                          "Reach EXIT and Escape.", x, y, strong)
         x, y = _sidebar_pos(BOARD_PX, 72, 1534)
-        _draw_text_shadow(screen, font_small, "Escape takes 1 full turn on EXIT.", x, y, muted)
+        _draw_text_shadow(screen, font_small,
+                          "Escape takes 1 full turn on EXIT.", x, y, muted)
     else:
-        _draw_text_shadow(screen, font_body, "Get adjacent to capture.", x, y, strong)
+        _draw_text_shadow(screen, font_body,
+                          "Get adjacent to capture.", x, y, strong)
         x, y = _sidebar_pos(BOARD_PX, 72, 1534)
-        _draw_text_shadow(screen, font_small, "Capture after BirSreshtha move.", x, y, muted)
+        _draw_text_shadow(screen, font_small,
+                          "Capture after BirSreshtha move.", x, y, muted)
 
 
 def _draw_fallback_ui(screen, fonts, state):
@@ -183,7 +188,7 @@ def _draw_fallback_ui(screen, fonts, state):
 
     signal_title = "Contact this turn:" if is_rajakar_turn else "Signals this turn:"
     _draw_text(screen, font_body, signal_title,
-               card2.x + 16, card2.y + 58, MUTED)
+               card2.x + 16, card2.y + 46, MUTED)
 
     _draw_pill(
         screen, font_small,

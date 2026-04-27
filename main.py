@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from collections import deque
 
 import pygame
 from typing import Optional
@@ -121,7 +122,51 @@ def _load_gameplay_sprite(sprite_name: str, target_size: int) -> Optional[pygame
             crop_x = (img.get_width() - crop_w) // 2
             crop_y = (img.get_height() - crop_h) // 2
             img = img.subsurface((crop_x, crop_y, crop_w, crop_h)).copy()
-        return pygame.transform.smoothscale(img, (target_size, target_size))
+
+        scaled = pygame.transform.smoothscale(
+            img, (target_size, target_size)).convert_alpha()
+
+        # Remove neutral white/gray block backgrounds only when they are
+        # connected to the icon border, preserving interior highlights.
+        def _is_bg(px: pygame.Color) -> bool:
+            if px.a == 0:
+                return False
+            brightness = min(px.r, px.g, px.b)
+            spread = max(px.r, px.g, px.b) - brightness
+            return brightness >= 120 and spread <= 22
+
+        w, h = scaled.get_size()
+        q = deque()
+        visited: set[tuple[int, int]] = set()
+
+        for x in range(w):
+            q.append((x, 0))
+            q.append((x, h - 1))
+        for y in range(h):
+            q.append((0, y))
+            q.append((w - 1, y))
+
+        while q:
+            x, y = q.popleft()
+            if (x, y) in visited:
+                continue
+            visited.add((x, y))
+
+            px = scaled.get_at((x, y))
+            if not _is_bg(px):
+                continue
+
+            scaled.set_at((x, y), (px.r, px.g, px.b, 0))
+            if x > 0:
+                q.append((x - 1, y))
+            if x < w - 1:
+                q.append((x + 1, y))
+            if y > 0:
+                q.append((x, y - 1))
+            if y < h - 1:
+                q.append((x, y + 1))
+
+        return scaled
     except pygame.error:
         return None
 
@@ -157,7 +202,8 @@ def draw_player(screen, r, c, fill, edge, label, font_small, facing=None, sprite
     screen.blit(shadow, (c * s.TILE_SIZE, s.TOP_BAR_H + r * s.TILE_SIZE))
 
     glow = pygame.Surface((s.TILE_SIZE, s.TILE_SIZE), pygame.SRCALPHA)
-    pygame.draw.circle(glow, s.PLAYER_GLOW, (s.TILE_SIZE // 2, s.TILE_SIZE // 2), radius + 10)
+    pygame.draw.circle(glow, s.PLAYER_GLOW, (s.TILE_SIZE //
+                       2, s.TILE_SIZE // 2), radius + 10)
     screen.blit(glow, (c * s.TILE_SIZE, s.TOP_BAR_H + r * s.TILE_SIZE))
 
     pygame.draw.circle(screen, fill, (center_x, center_y), radius)
@@ -168,7 +214,8 @@ def draw_player(screen, r, c, fill, edge, label, font_small, facing=None, sprite
         arrow_len = int(radius * 0.6)
         arrow_end_x = center_x + dc * arrow_len
         arrow_end_y = center_y + dr * arrow_len
-        pygame.draw.line(screen, (10, 10, 12), (center_x, center_y), (arrow_end_x, arrow_end_y), 3)
+        pygame.draw.line(screen, (10, 10, 12), (center_x,
+                         center_y), (arrow_end_x, arrow_end_y), 3)
         head_size = 5
         if dr != 0:
             points = [
@@ -185,7 +232,8 @@ def draw_player(screen, r, c, fill, edge, label, font_small, facing=None, sprite
         pygame.draw.polygon(screen, (10, 10, 12), points)
 
     txt = font_small.render(label, True, (10, 10, 12))
-    screen.blit(txt, (center_x - txt.get_width() // 2, center_y - txt.get_height() // 2))
+    screen.blit(txt, (center_x - txt.get_width() //
+                2, center_y - txt.get_height() // 2))
 
 
 def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_facing, scan_cells=None):
@@ -325,7 +373,8 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
         s.RAJAKAR_EDGE,
         "R",
         font_exit,
-        sprite=None if GAMEPLAY_SPRITES is None else GAMEPLAY_SPRITES.get("rajakar"),
+        sprite=None if GAMEPLAY_SPRITES is None else GAMEPLAY_SPRITES.get(
+            "rajakar"),
     )
     draw_player(
         screen,
@@ -336,7 +385,8 @@ def draw_layout(screen, grid, font_exit, raj_pos, birsreshtha_pos, birsreshtha_f
         "B",
         font_exit,
         facing=birsreshtha_facing,
-        sprite=None if GAMEPLAY_SPRITES is None else GAMEPLAY_SPRITES.get("birsreshtha"),
+        sprite=None if GAMEPLAY_SPRITES is None else GAMEPLAY_SPRITES.get(
+            "birsreshtha"),
     )
 
 
