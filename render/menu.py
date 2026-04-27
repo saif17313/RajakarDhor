@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+from collections import deque
 from typing import Dict, Optional, Tuple
 
 import pygame
+from PIL import Image as PILImage
 
 
 Color = Tuple[int, int, int]
@@ -22,6 +24,91 @@ def load_image(path: str, alpha: bool = True) -> Optional[pygame.Surface]:
         return image.convert_alpha() if alpha else image.convert()
     except pygame.error:
         return None
+
+
+def load_art_image(path: str, alpha: bool = True) -> Optional[pygame.Surface]:
+    """Load menu artwork and strip light checkerboard backgrounds when present."""
+    image = load_image(path, alpha)
+    if image is None:
+        return None
+
+    try:
+        pil_image = PILImage.open(path).convert("RGBA")
+    except Exception:
+        return image
+
+    width, height = pil_image.size
+    pixels = pil_image.load()
+
+    def is_bg_like(px: Tuple[int, int, int, int]) -> bool:
+        red, green, blue, alpha_value = px
+        if alpha_value == 0:
+            return True
+        brightness = min(red, green, blue)
+        spread = max(red, green, blue) - brightness
+        # Target the light neutral checkerboard (and similar edge matte tones).
+        return brightness >= 200 and spread <= 26
+
+    visited = set()
+    queue = deque()
+
+    for x in range(width):
+        queue.append((x, 0))
+        queue.append((x, height - 1))
+    for y in range(height):
+        queue.append((0, y))
+        queue.append((width - 1, y))
+
+    while queue:
+        x, y = queue.popleft()
+        if (x, y) in visited:
+            continue
+        visited.add((x, y))
+        if not is_bg_like(pixels[x, y]):
+            continue
+        red, green, blue, _ = pixels[x, y]
+        pixels[x, y] = (red, green, blue, 0)
+        if x > 0:
+            queue.append((x - 1, y))
+        if x + 1 < width:
+            queue.append((x + 1, y))
+        if y > 0:
+            queue.append((x, y - 1))
+        if y + 1 < height:
+            queue.append((x, y + 1))
+
+    bbox = pil_image.getbbox()
+    if bbox is not None:
+        pil_image = pil_image.crop(bbox)
+
+    return pygame.image.fromstring(pil_image.tobytes(), pil_image.size, pil_image.mode).convert_alpha()
+
+
+def load_title_card_image(path: str, alpha: bool = True) -> Optional[pygame.Surface]:
+    """Keep the title card processing as before the latest button-specific cleanup changes."""
+    image = load_image(path, alpha)
+    if image is None:
+        return None
+
+    try:
+        pil_image = PILImage.open(path).convert("RGBA")
+    except Exception:
+        return image
+
+    pixels = []
+    for red, green, blue, alpha_value in pil_image.getdata():
+        brightness = min(red, green, blue)
+        spread = max(red, green, blue) - brightness
+        if alpha_value > 0 and brightness >= 232 and spread <= 18:
+            pixels.append((red, green, blue, 0))
+        else:
+            pixels.append((red, green, blue, alpha_value))
+    pil_image.putdata(pixels)
+    bbox = pil_image.getbbox()
+    if bbox is not None:
+        pil_image = pil_image.crop(bbox)
+
+    return pygame.image.fromstring(pil_image.tobytes(), pil_image.size, pil_image.mode).convert_alpha()
 
 
 def load_first_image(paths: Tuple[str, ...], alpha: bool = True) -> Optional[pygame.Surface]:
@@ -67,7 +154,8 @@ def scale_cover(image: pygame.Surface, size: Tuple[int, int]) -> pygame.Surface:
     iw, ih = image.get_size()
     tw, th = size
     scale = max(tw / iw, th / ih)
-    scaled = pygame.transform.smoothscale(image, (int(iw * scale), int(ih * scale)))
+    scaled = pygame.transform.smoothscale(
+        image, (int(iw * scale), int(ih * scale)))
     crop = pygame.Rect(0, 0, tw, th)
     crop.center = scaled.get_rect().center
     return scaled.subsurface(crop).copy()
@@ -92,10 +180,10 @@ def tint_image(image: pygame.Surface, color: Color) -> pygame.Surface:
 
 
 class Button:
-    def __init__(self, rect: pygame.Rect, text: str, icon: Optional[pygame.Surface], primary: bool = False):
+    def __init__(self, rect: pygame.Rect, text: str, image: Optional[pygame.Surface], primary: bool = False):
         self.rect = rect
         self.text = text
-        self.icon = icon
+        self.image = image
         self.primary = primary
         self.hovered = False
 
@@ -108,6 +196,25 @@ class Button:
         return False
 
     def draw(self, surface: pygame.Surface, font: pygame.font.Font) -> None:
+        if self.image is not None:
+            shadow = pygame.Surface(
+                (self.rect.w + 16, self.rect.h + 16), pygame.SRCALPHA)
+            pygame.draw.rect(shadow, (0, 0, 0, 150),
+                             shadow.get_rect(), border_radius=8)
+            surface.blit(shadow, (self.rect.x + 6, self.rect.y + 8))
+
+            button_image = pygame.transform.smoothscale(
+                self.image, self.rect.size)
+            surface.blit(button_image, self.rect.topleft)
+
+            if self.hovered:
+                glow = pygame.Surface(self.rect.size, pygame.SRCALPHA)
+                glow.fill((255, 238, 170, 28))
+                surface.blit(glow, self.rect.topleft)
+                pygame.draw.rect(surface, (255, 230, 180),
+                                 self.rect, width=2, border_radius=8)
+            return
+
         if self.primary:
             fill = (68, 78, 35) if not self.hovered else (92, 106, 48)
             border = (181, 159, 75) if not self.hovered else (236, 213, 116)
@@ -117,30 +224,37 @@ class Button:
             border = (101, 82, 56) if not self.hovered else (178, 145, 82)
             text_color = (211, 195, 163)
 
-        shadow = pygame.Surface((self.rect.w + 14, self.rect.h + 14), pygame.SRCALPHA)
-        pygame.draw.rect(shadow, (0, 0, 0, 155), shadow.get_rect(), border_radius=7)
+        shadow = pygame.Surface(
+            (self.rect.w + 14, self.rect.h + 14), pygame.SRCALPHA)
+        pygame.draw.rect(shadow, (0, 0, 0, 155),
+                         shadow.get_rect(), border_radius=7)
         surface.blit(shadow, (self.rect.x + 5, self.rect.y + 7))
 
         pygame.draw.rect(surface, fill, self.rect, border_radius=7)
         pygame.draw.rect(surface, border, self.rect, width=2, border_radius=7)
-        pygame.draw.rect(surface, (255, 246, 198, 16), self.rect.inflate(-6, -6), width=1, border_radius=5)
+        pygame.draw.rect(surface, (255, 246, 198, 16),
+                         self.rect.inflate(-6, -6), width=1, border_radius=5)
 
         if self.hovered:
             glow = pygame.Surface(self.rect.size, pygame.SRCALPHA)
-            pygame.draw.rect(glow, (235, 204, 105, 42), glow.get_rect(), border_radius=7)
+            pygame.draw.rect(glow, (235, 204, 105, 42),
+                             glow.get_rect(), border_radius=7)
             surface.blit(glow, self.rect.topleft)
 
-        if self.icon is not None:
+        if self.image is not None:
             icon_size = int(self.rect.h * (0.58 if self.primary else 0.52))
-            icon = pygame.transform.smoothscale(self.icon, (icon_size, icon_size))
+            icon = pygame.transform.smoothscale(
+                self.image, (icon_size, icon_size))
             icon = tint_image(icon, text_color)
-            icon_rect = icon.get_rect(center=(self.rect.x + int(self.rect.w * 0.22), self.rect.centery))
+            icon_rect = icon.get_rect(
+                center=(self.rect.x + int(self.rect.w * 0.22), self.rect.centery))
             surface.blit(icon, icon_rect)
         else:
             self._draw_fallback_icon(surface, text_color)
 
         label = font.render(self.text, True, text_color)
-        label_rect = label.get_rect(center=(self.rect.centerx + int(self.rect.w * 0.07), self.rect.centery))
+        label_rect = label.get_rect(
+            center=(self.rect.centerx + int(self.rect.w * 0.07), self.rect.centery))
         surface.blit(label, label_rect)
 
     def _draw_fallback_icon(self, surface: pygame.Surface, color: Color) -> None:
@@ -154,89 +268,103 @@ class Button:
             pygame.draw.rect(surface, color, (x + 3, y - 13, 15, 26), width=3)
         else:
             pygame.draw.rect(surface, color, (x - 15, y - 18, 24, 36), width=3)
-            pygame.draw.polygon(surface, color, [(x + 21, y), (x + 8, y - 9), (x + 8, y + 9)])
+            pygame.draw.polygon(
+                surface, color, [(x + 21, y), (x + 8, y - 9), (x + 8, y + 9)])
 
 
 class Slider:
-    def __init__(self, track_rect: pygame.Rect, clock_icon: Optional[pygame.Surface], value: float = 0.5):
+    def __init__(self, track_rect: pygame.Rect, background_image: Optional[pygame.Surface], clock_icon: Optional[pygame.Surface], value: float = 0.5):
         self.rect = track_rect
+        self.background_image = background_image
         self.clock_icon = clock_icon
         self.value = clamp(value, 0.0, 1.0)
-        self.dragging = False
+        def _draw_card_image(
+            self,
+            surface: pygame.Surface,
+            image: Optional[pygame.Surface],
+            rect: pygame.Rect,
+            fill: Color,
+            border: Color,
+            fallback_title: str,
+            description: Tuple[str, str],
+        ) -> None:
+            shadow = pygame.Surface((rect.w + 14, rect.h + 14), pygame.SRCALPHA)
+            pygame.draw.rect(shadow, (0, 0, 0, 145),
+                             shadow.get_rect(), border_radius=8)
+            surface.blit(shadow, (rect.x + 6, rect.y + 8))
 
-    @property
-    def speed_multiplier(self) -> float:
-        if self.value <= 0.5:
-            return 0.5 + self.value
-        return 1.0 + (self.value - 0.5) * 4.0
+            if image is not None:
+                fitted = blit_fit(surface, image, rect)
+                pygame.draw.rect(surface, border, fitted, width=2, border_radius=5)
+                caption_rect = pygame.Rect(
+                    fitted.x + int(fitted.w * 0.05),
+                    fitted.y + int(fitted.h * 0.78),
+                    int(fitted.w * 0.90),
+                    int(fitted.h * 0.16),
+                )
+                caption_bg = pygame.Surface(caption_rect.size, pygame.SRCALPHA)
+                pygame.draw.rect(caption_bg, (*fill, 235), caption_bg.get_rect(), border_radius=7)
+                pygame.draw.rect(caption_bg, (*border, 150), caption_bg.get_rect(), width=2, border_radius=7)
+                surface.blit(caption_bg, caption_rect.topleft)
 
-    def speed_label(self) -> str:
-        speed = self.speed_multiplier
-        if speed < 0.85:
-            return "Slow"
-        if speed < 1.35:
-            return "Normal"
-        if speed < 2.25:
-            return "Fast"
-        return "Very Fast"
+                line_gap = max(20, int(caption_rect.h * 0.42))
+                first_y = caption_rect.centery - line_gap // 2
+                for index, line in enumerate(description):
+                    draw_text_with_shadow(
+                        surface,
+                        self.fonts["small_bold"],
+                        line,
+                        (caption_rect.centerx, first_y + index * line_gap),
+                        (232, 220, 190),
+                        center=True,
+                        offset=(2, 2),
+                    )
+                return
 
-    def _set_from_mouse(self, x: int) -> None:
-        self.value = clamp((x - self.rect.x) / max(1, self.rect.w), 0.0, 1.0)
-
-    def handle_event(self, event: pygame.event.Event) -> bool:
-        knob_x = self.rect.x + int(self.rect.w * self.value)
-        knob = pygame.Rect(0, 0, 42, 42)
-        knob.center = (knob_x, self.rect.centery)
-        hit = self.rect.inflate(34, 52)
-
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            if knob.collidepoint(event.pos) or hit.collidepoint(event.pos):
-                self.dragging = True
-                self._set_from_mouse(event.pos[0])
-                return True
-        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-            was_dragging = self.dragging
-            self.dragging = False
-            return was_dragging
-        if event.type == pygame.MOUSEMOTION and self.dragging:
-            self._set_from_mouse(event.pos[0])
-            return True
-        return False
-
-    def draw(self, surface: pygame.Surface, fonts: Dict[str, pygame.font.Font]) -> None:
-        panel = pygame.Rect(self.rect.x - 14, self.rect.y - 50, self.rect.w + 28, 88)
-
-        box = pygame.Surface(panel.size, pygame.SRCALPHA)
-        pygame.draw.rect(box, (17, 16, 13, 196), box.get_rect(), border_radius=7)
-        pygame.draw.rect(box, (125, 101, 66, 210), box.get_rect(), width=2, border_radius=7)
+            pygame.draw.rect(surface, fill, rect, border_radius=7)
+            pygame.draw.rect(surface, border, rect, width=2, border_radius=7)
+            draw_text_with_shadow(surface, self.fonts["small_bold"], fallback_title, (rect.centerx, rect.y + 36), border, center=True)
+            draw_text_with_shadow(surface, self.fonts["small_bold"], description[0], (rect.centerx, rect.bottom - 78), (232, 220, 190), center=True, offset=(2, 2))
+            draw_text_with_shadow(surface, self.fonts["small_bold"], description[1], (rect.centerx, rect.bottom - 48), (232, 220, 190), center=True, offset=(2, 2))
+                         box.get_rect(), border_radius=7)
+        pygame.draw.rect(box, (125, 101, 66, 214),
+                         box.get_rect(), width=2, border_radius=7)
         surface.blit(box, panel.topleft)
 
-        label_y = panel.y + 12
+        label_y = panel.y - 34
         label_color = (211, 184, 129)
         if self.clock_icon is not None:
             icon = pygame.transform.smoothscale(self.clock_icon, (28, 28))
             icon = tint_image(icon, label_color)
-            surface.blit(icon, icon.get_rect(center=(panel.x + 18, label_y + 12)))
+            surface.blit(icon, icon.get_rect(
+                center=(panel.x + 18, label_y + 12)))
         else:
-            pygame.draw.circle(surface, label_color, (panel.x + 18, label_y + 12), 12, width=3)
-        draw_text_with_shadow(surface, fonts["small_bold"], "SIMULATION SPEED", (panel.x + 46, label_y), label_color, (0, 0, 0), offset=(2, 2))
+            pygame.draw.circle(surface, label_color,
+                               (panel.x + 18, label_y + 12), 12, width=3)
+        draw_text_with_shadow(surface, fonts["small_bold"], "SIMULATION SPEED", (
+            panel.x + 46, label_y), label_color, (0, 0, 0), offset=(2, 2))
 
         pygame.draw.rect(surface, (13, 14, 11), self.rect, border_radius=999)
-        pygame.draw.rect(surface, (105, 91, 60), self.rect, width=2, border_radius=999)
+        pygame.draw.rect(surface, (105, 91, 60), self.rect,
+                         width=2, border_radius=999)
 
         fill_rect = self.rect.copy()
         fill_rect.w = max(8, int(self.rect.w * self.value))
         pygame.draw.rect(surface, (105, 127, 57), fill_rect, border_radius=999)
 
         knob_x = self.rect.x + int(self.rect.w * self.value)
-        pygame.draw.circle(surface, (25, 29, 18), (knob_x, self.rect.centery), 18)
-        pygame.draw.circle(surface, (234, 226, 195), (knob_x, self.rect.centery), 18, width=3)
+        pygame.draw.circle(surface, (25, 29, 18),
+                           (knob_x, self.rect.centery), 18)
+        pygame.draw.circle(surface, (234, 226, 195),
+                           (knob_x, self.rect.centery), 18, width=3)
 
         text_y = self.rect.bottom + 18
         muted = (202, 178, 132)
-        draw_text_with_shadow(surface, fonts["small"], "Slow", (panel.x + 14, text_y), muted, offset=(1, 1))
-        current = f"Current: {self.speed_label()} ({self.speed_multiplier:.1f}x)"
-        draw_text_with_shadow(surface, fonts["small"], current, (panel.centerx, text_y), (223, 207, 169), center=True, offset=(1, 1))
+        draw_text_with_shadow(
+            surface, fonts["small"], "Slow", (panel.x + 14, text_y), muted, offset=(1, 1))
+        current = f"Current: {self.speed_multiplier:.1f}x"
+        draw_text_with_shadow(surface, fonts["small"], current, (
+            panel.centerx, text_y), (223, 207, 169), center=True, offset=(1, 1))
         fast = fonts["small"].render("Fast", True, muted)
         shadow = fonts["small"].render("Fast", True, (0, 0, 0))
         pos = (panel.right - fast.get_width() - 14, text_y)
@@ -251,8 +379,10 @@ class MainMenu:
         self.assets = self._load_assets()
         self.fonts = self._build_fonts()
         self.buttons = self._build_buttons()
-        self.slider = Slider(self._slider_rect(), self.assets["clock"], value=0.5)
-        self.back_button = Button(pygame.Rect(48, height - 94, 180, 56), "BACK", None, False)
+        self.slider = Slider(
+            self._slider_rect(), self.assets["slider_bg"], self.assets["clock"], value=0.5)
+        self.back_button = Button(pygame.Rect(
+            48, height - 94, 180, 56), "BACK", None, False)
 
     @property
     def speed_multiplier(self) -> float:
@@ -264,11 +394,13 @@ class MainMenu:
                 os.path.join("assets", "menu", "menu_background.png"),
                 os.path.join("assets", "menu", "menu_backgorund.png"),
             )),
+            "title_card": load_title_card_image(os.path.join("assets", "menu", "title_card.png")),
             "bir_card": load_image(os.path.join("assets", "menu", "bir_sreshtha_card.png")),
             "raj_card": load_image(os.path.join("assets", "menu", "rajakar_card.png")),
-            "star": load_image(os.path.join("assets", "icons", "star.png")),
-            "book": load_image(os.path.join("assets", "icons", "book.png")),
-            "exit": load_image(os.path.join("assets", "icons", "exit.png")),
+            "start_button": load_art_image(os.path.join("assets", "button", "start_button.png")),
+            "how_button": load_art_image(os.path.join("assets", "button", "how_to_play_button.png")),
+            "exit_button": load_art_image(os.path.join("assets", "button", "exit_button.png")),
+            "slider_bg": load_art_image(os.path.join("assets", "menu", "slider_bg.png")),
             "clock": load_image(os.path.join("assets", "icons", "clock.png")),
         }
 
@@ -287,25 +419,31 @@ class MainMenu:
         }
 
     def _button_layout(self) -> Tuple[int, int, int, int]:
-        button_x = int(self.width * 0.08)
-        button_w = int(self.width * 0.40)
-        button_h = max(48, int(self.height * 0.072))
-        start_y = int(self.height * 0.49)
+        button_x = int(self.width * 0.055)
+        button_w = int(self.width * 0.43)
+        button_h = max(50, int(self.height * 0.068))
+        start_y = int(self.height * 0.37)
         return button_x, start_y, button_w, button_h
 
     def _build_buttons(self) -> Dict[str, Button]:
         x, y, w, h = self._button_layout()
+        gap = 14
+        start_w = w
+        start_h = h + 6
         return {
-            "start": Button(pygame.Rect(x, y, w, h), "START", self.assets["star"], True),
-            "how": Button(pygame.Rect(x, y + h + 18, w, h), "HOW TO PLAY", self.assets["book"], False),
-            "exit": Button(pygame.Rect(x, y + (h + 18) * 2, w, h), "EXIT", self.assets["exit"], False),
+            "start": Button(pygame.Rect(x, y, start_w, start_h), "START", self.assets["start_button"], True),
+            "how": Button(pygame.Rect(x, y + h + gap, w, h), "HOW TO PLAY", self.assets["how_button"], False),
+            "exit": Button(pygame.Rect(x, y + (h + gap) * 2, w, h), "EXIT", self.assets["exit_button"], False),
         }
 
     def _slider_rect(self) -> pygame.Rect:
         x, y, w, h = self._button_layout()
-        exit_bottom = y + (h + 18) * 2 + h
+        gap = 18
+        exit_bottom = y + (h + gap) * 2 + h
         track_y = exit_bottom + 60
-        return pygame.Rect(x + 14, track_y, w - 28, max(12, int(self.height * 0.014)))
+        track_w = int(w * 0.84)
+        track_x = x + 2
+        return pygame.Rect(track_x, track_y, track_w, max(12, int(self.height * 0.014)))
 
     def handle_menu_event(self, event: pygame.event.Event) -> Optional[str]:
         if self.slider.handle_event(event):
@@ -339,13 +477,17 @@ class MainMenu:
         overlay.fill((0, 0, 0, 150))
         surface.blit(overlay, (0, 0))
 
-        panel = pygame.Rect(int(self.width * 0.20), int(self.height * 0.15), int(self.width * 0.60), int(self.height * 0.64))
+        panel = pygame.Rect(int(self.width * 0.20), int(self.height * 0.15),
+                            int(self.width * 0.60), int(self.height * 0.64))
         panel_surf = pygame.Surface(panel.size, pygame.SRCALPHA)
-        pygame.draw.rect(panel_surf, (28, 26, 20, 230), panel_surf.get_rect(), border_radius=10)
-        pygame.draw.rect(panel_surf, (157, 124, 67, 230), panel_surf.get_rect(), width=2, border_radius=10)
+        pygame.draw.rect(panel_surf, (28, 26, 20, 230),
+                         panel_surf.get_rect(), border_radius=10)
+        pygame.draw.rect(panel_surf, (157, 124, 67, 230),
+                         panel_surf.get_rect(), width=2, border_radius=10)
         surface.blit(panel_surf, panel.topleft)
 
-        draw_text_with_shadow(surface, self.fonts["subtitle"], "HOW TO PLAY", (panel.centerx, panel.y + 48), (239, 226, 190), center=True)
+        draw_text_with_shadow(surface, self.fonts["subtitle"], "HOW TO PLAY", (
+            panel.centerx, panel.y + 48), (239, 226, 190), center=True)
         lines = [
             "Move silently.",
             "Avoid detection.",
@@ -355,18 +497,22 @@ class MainMenu:
         ]
         y = panel.y + 120
         for line in lines:
-            pygame.draw.circle(surface, (151, 55, 42), (panel.x + 50, y + 12), 5)
-            draw_text_with_shadow(surface, self.fonts["body"], line, (panel.x + 82, y), (218, 203, 166), offset=(2, 2))
+            pygame.draw.circle(surface, (151, 55, 42),
+                               (panel.x + 50, y + 12), 5)
+            draw_text_with_shadow(
+                surface, self.fonts["body"], line, (panel.x + 82, y), (218, 203, 166), offset=(2, 2))
             y += 52
 
         note = "Press R during a finished match to restart the simulation."
-        draw_text_with_shadow(surface, self.fonts["small"], note, (panel.centerx, panel.bottom - 66), (160, 145, 112), center=True, offset=(1, 1))
+        draw_text_with_shadow(surface, self.fonts["small"], note, (
+            panel.centerx, panel.bottom - 66), (160, 145, 112), center=True, offset=(1, 1))
         self.back_button.draw(surface, self.fonts["button_small"])
 
     def _draw_background(self, surface: pygame.Surface) -> None:
         background = self.assets["background"]
         if background is not None:
-            surface.blit(scale_cover(background, (self.width, self.height)), (0, 0))
+            surface.blit(scale_cover(
+                background, (self.width, self.height)), (0, 0))
         else:
             self._draw_fallback_background(surface)
 
@@ -378,8 +524,10 @@ class MainMenu:
         edge = max(80, int(self.width * 0.14))
         for i in range(edge):
             alpha = int(115 * (1 - i / edge))
-            pygame.draw.rect(vignette, (0, 0, 0, alpha), (i, 0, 1, self.height))
-            pygame.draw.rect(vignette, (0, 0, 0, alpha), (self.width - i - 1, 0, 1, self.height))
+            pygame.draw.rect(vignette, (0, 0, 0, alpha),
+                             (i, 0, 1, self.height))
+            pygame.draw.rect(vignette, (0, 0, 0, alpha),
+                             (self.width - i - 1, 0, 1, self.height))
         surface.blit(vignette, (0, 0))
 
     def _draw_fallback_background(self, surface: pygame.Surface) -> None:
@@ -391,32 +539,53 @@ class MainMenu:
                 int(30 - t * 22),
             )
             pygame.draw.line(surface, col, (0, y), (self.width, y))
-        pygame.draw.circle(surface, (116, 78, 43), (int(self.width * 0.47), int(self.height * 0.22)), 80)
-        pygame.draw.rect(surface, (32, 22, 16), (0, int(self.height * 0.56), self.width, self.height))
+        pygame.draw.circle(surface, (116, 78, 43), (int(
+            self.width * 0.47), int(self.height * 0.22)), 80)
+        pygame.draw.rect(surface, (32, 22, 16), (0, int(
+            self.height * 0.56), self.width, self.height))
 
     def _draw_title_block(self, surface: pygame.Surface) -> None:
-        x = int(self.width * 0.08)
-        y = int(self.height * 0.25)
-        title = "RajakarDhor"
-        title_rect = draw_text_with_shadow(surface, self.fonts["title"], title, (x, y), (226, 215, 181), (10, 8, 4), offset=(5, 7))
+        title_card = self.assets["title_card"]
+        if title_card is None:
+            x = int(self.width * 0.08)
+            y = int(self.height * 0.25)
+            title = "RajakarDhor"
+            title_rect = draw_text_with_shadow(
+                surface, self.fonts["title"], title, (x, y), (226, 215, 181), (10, 8, 4), offset=(5, 7))
+            sub_y = title_rect.bottom + 6
+            draw_text_with_shadow(surface, self.fonts["subtitle"], "TURN-BASED STEALTH PURSUIT",
+                                  (x + 4, sub_y), (186, 158, 101), (0, 0, 0), offset=(2, 3))
+            mission_y = sub_y + max(28, int(self.height * 0.038))
+            draw_text_with_shadow(surface, self.fonts["mission"], "Eliminate the Rajakar without being detected.", (
+                x + 4, mission_y), (205, 178, 125), (0, 0, 0), offset=(2, 3))
+            return
 
-        sub_y = title_rect.bottom + 6
-        draw_text_with_shadow(surface, self.fonts["subtitle"], "TURN-BASED STEALTH PURSUIT", (x + 4, sub_y), (186, 158, 101), (0, 0, 0), offset=(2, 3))
-
-        mission_y = sub_y + max(28, int(self.height * 0.038))
-        draw_text_with_shadow(surface, self.fonts["mission"], "Eliminate the Rajakar without being detected.", (x + 4, mission_y), (205, 178, 125), (0, 0, 0), offset=(2, 3))
+        card_w = min(int(self.width * 0.50), title_card.get_width())
+        card_h = int(card_w * title_card.get_height() / title_card.get_width())
+        card_x = 34
+        card_y = 18
+        card_rect = pygame.Rect(card_x, card_y, card_w, card_h)
+        fitted = pygame.transform.smoothscale(title_card, card_rect.size)
+        shadow = pygame.Surface(
+            (card_rect.w + 18, card_rect.h + 18), pygame.SRCALPHA)
+        pygame.draw.rect(shadow, (0, 0, 0, 130),
+                         shadow.get_rect(), border_radius=10)
+        surface.blit(shadow, (card_rect.x + 8, card_rect.y + 10))
+        surface.blit(fitted, card_rect.topleft)
 
     def _draw_character_cards(self, surface: pygame.Surface) -> None:
         gap = 25
         card_w = int(self.width * 0.20)
         card_h = int(self.height * 0.45)
-        max_total = self.width - int(self.width * 0.53) - int(self.width * 0.04)
+        max_total = self.width - \
+            int(self.width * 0.53) - int(self.width * 0.04)
         if card_w * 2 + gap > max_total:
             card_w = int((max_total - gap) / 2)
         card_h = min(card_h, int(card_w * 1.55))
         x = int(self.width * 0.53)
         y = int(self.height * 0.31)
 
+<<<<<<< HEAD
         self._draw_card_image(
             surface,
             self.assets["bir_card"],
@@ -435,6 +604,26 @@ class MainMenu:
             "RAJAKAR",
             ("Move in silence.", "Use cover."),
         )
+=======
+        self._draw_card_image(
+            surface,
+            self.assets["bir_card"],
+            pygame.Rect(x, y, card_w, card_h),
+            (52, 78, 38),
+            (142, 161, 68),
+            "BIR SRESHTHA",
+            ("Guard your post.", "Stop the intruder."),
+        )
+        self._draw_card_image(
+            surface,
+            self.assets["raj_card"],
+            pygame.Rect(x + card_w + gap, y, card_w, card_h),
+            (71, 32, 22),
+            (157, 68, 44),
+            "RAJAKAR",
+            ("Move in silence.", "Use cover."),
+        )
+>>>>>>> d0c6725 (UI: align slider, trim slider box, adjust START button sizing, show numeric multiplier)
 
     def _draw_card_image(
         self,
@@ -447,7 +636,8 @@ class MainMenu:
         description: Tuple[str, str],
     ) -> None:
         shadow = pygame.Surface((rect.w + 14, rect.h + 14), pygame.SRCALPHA)
-        pygame.draw.rect(shadow, (0, 0, 0, 145), shadow.get_rect(), border_radius=8)
+        pygame.draw.rect(shadow, (0, 0, 0, 145),
+                         shadow.get_rect(), border_radius=8)
         surface.blit(shadow, (rect.x + 6, rect.y + 8))
 
         if image is not None:
@@ -480,13 +670,19 @@ class MainMenu:
 
         pygame.draw.rect(surface, fill, rect, border_radius=7)
         pygame.draw.rect(surface, border, rect, width=2, border_radius=7)
+<<<<<<< HEAD
         draw_text_with_shadow(surface, self.fonts["small_bold"], fallback_title, (rect.centerx, rect.y + 36), border, center=True)
         draw_text_with_shadow(surface, self.fonts["small_bold"], description[0], (rect.centerx, rect.bottom - 78), (232, 220, 190), center=True, offset=(2, 2))
         draw_text_with_shadow(surface, self.fonts["small_bold"], description[1], (rect.centerx, rect.bottom - 48), (232, 220, 190), center=True, offset=(2, 2))
+=======
+        draw_text_with_shadow(surface, self.fonts["small_bold"], fallback_title, (
+            rect.centerx, rect.y + 36), border, center=True)
+>>>>>>> d0c6725 (UI: align slider, trim slider box, adjust START button sizing, show numeric multiplier)
 
     def _draw_footer(self, surface: pygame.Surface) -> None:
         footer = "(c) 2024 RajakarDhor Team. All rights reserved."
-        draw_text_with_shadow(surface, self.fonts["small"], footer, (int(self.width * 0.02), self.height - 36), (123, 106, 75), offset=(1, 1))
+        draw_text_with_shadow(surface, self.fonts["small"], footer, (int(
+            self.width * 0.02), self.height - 36), (123, 106, 75), offset=(1, 1))
         version = self.fonts["small"].render("v1.0.0", True, (129, 112, 77))
         shadow = self.fonts["small"].render("v1.0.0", True, (0, 0, 0))
         vx = self.width - version.get_width() - int(self.width * 0.03)
