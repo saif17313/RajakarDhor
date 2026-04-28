@@ -492,7 +492,8 @@ class MainMenu:
             "Move silently.",
             "Avoid detection.",
             "Use cover.",
-            "Get adjacent to capture.",
+            "Birsreshtha captures when adjacent.",
+            "Birsreshtha has a power scan every 4 turns.",
             "Escape through exit tiles.",
         ]
         y = panel.y + 120
@@ -503,9 +504,6 @@ class MainMenu:
                 surface, self.fonts["body"], line, (panel.x + 82, y), (218, 203, 166), offset=(2, 2))
             y += 52
 
-        note = "Press R during a finished match to restart the simulation."
-        draw_text_with_shadow(surface, self.fonts["small"], note, (
-            panel.centerx, panel.bottom - 66), (160, 145, 112), center=True, offset=(1, 1))
         self.back_button.draw(surface, self.fonts["button_small"])
 
     def _draw_background(self, surface: pygame.Surface) -> None:
